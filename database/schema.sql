@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS reviews (
 
 CREATE TABLE IF NOT EXISTS processed_reviews (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    review_id       INTEGER REFERENCES reviews(id),
+    review_id       INTEGER UNIQUE REFERENCES reviews(id),
     source          TEXT    NOT NULL,
     competitor_name TEXT    NOT NULL,
     review_text     TEXT    NOT NULL,
