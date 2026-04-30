@@ -6,7 +6,8 @@ Sprint 4: TestBattlecardGenerator
 Sprint 5: TestTriggerAlerts, TestHotProspectFinder
 """
 
-from unittest.mock import patch
+import json
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -144,3 +145,279 @@ class TestPainPointRadar:
             assert row["trend_icon"] == icon_map[row["trend_direction"]], (
                 f"Mismatch: direction={row['trend_direction']}, icon={row['trend_icon']}"
             )
+
+
+# ── Sprint 3 — Sentiment Timeline ─────────────────────────────────────────────
+
+# Fixture: raw sentiment rows (one per review, before aggregation)
+_TIMELINE_RAW = pd.DataFrame(
+    {
+        "month": [
+            "2025-06", "2025-06", "2025-06",
+            "2025-07", "2025-07",
+            "2025-08", "2025-08", "2025-08",
+            "2025-09", "2025-09",
+        ],
+        "sentiment_score": [
+            -0.60, -0.50, -0.70,   # 2025-06: avg ≈ -0.600
+            -0.40, -0.30,           # 2025-07: avg = -0.350
+            -0.20, -0.10, -0.30,   # 2025-08: avg ≈ -0.200
+            -0.45, -0.55,           # 2025-09: avg = -0.500
+        ],
+    }
+)
+
+# Fixture: news rows returned by the second query_df call inside fetch_news_events
+_NEWS_RAW = pd.DataFrame(
+    {
+        "month": ["2025-07", "2025-09"],
+        "headline": ["Salesforce announces price hike", "Major Salesforce outage reported"],
+        "sentiment_score": [-0.80, -0.90],
+    }
+)
+
+
+class TestSentimentTimeline:
+    """Unit tests for modules/sentiment_timeline.py."""
+
+    @patch("modules.sentiment_timeline.fetch_news_events", return_value=[])
+    @patch("modules.sentiment_timeline.query_df")
+    def test_returns_required_columns(self, mock_query, mock_events) -> None:
+        """build_timeline() must return all seven required columns."""
+        from modules.sentiment_timeline import build_timeline
+
+        mock_query.return_value = _TIMELINE_RAW.copy()
+        result = build_timeline("Salesforce", months=18)
+
+        required = {"month", "competitor", "avg_sentiment", "stddev", "review_count", "top_event", "event_url"}
+        assert required.issubset(result.columns), f"Missing: {required - set(result.columns)}"
+
+    @patch("modules.sentiment_timeline.fetch_news_events", return_value=[])
+    @patch("modules.sentiment_timeline.query_df")
+    def test_avg_sentiment_within_range(self, mock_query, mock_events) -> None:
+        """avg_sentiment must be within [-1.0, 1.0] for all rows."""
+        from modules.sentiment_timeline import build_timeline
+
+        mock_query.return_value = _TIMELINE_RAW.copy()
+        result = build_timeline("Salesforce")
+
+        assert (result["avg_sentiment"] >= -1.0).all(), "avg_sentiment below -1"
+        assert (result["avg_sentiment"] <= 1.0).all(), "avg_sentiment above 1"
+
+    @patch("modules.sentiment_timeline.fetch_news_events", return_value=[])
+    @patch("modules.sentiment_timeline.query_df")
+    def test_months_filter_limits_rows(self, mock_query, mock_events) -> None:
+        """months=2 should return at most 2 distinct calendar months."""
+        from modules.sentiment_timeline import build_timeline
+
+        mock_query.return_value = _TIMELINE_RAW.copy()
+        result = build_timeline("Salesforce", months=2)
+
+        assert len(result) <= 2, (
+            f"Expected ≤ 2 month rows with months=2, got {len(result)}"
+        )
+
+    @patch("modules.sentiment_timeline.fetch_news_events", return_value=[])
+    @patch("modules.sentiment_timeline.query_df")
+    def test_stddev_nonnegative(self, mock_query, mock_events) -> None:
+        """stddev must be ≥ 0 for all rows."""
+        from modules.sentiment_timeline import build_timeline
+
+        mock_query.return_value = _TIMELINE_RAW.copy()
+        result = build_timeline("Salesforce")
+
+        assert (result["stddev"] >= 0.0).all(), "stddev must be non-negative"
+
+    @patch("modules.sentiment_timeline.fetch_news_events", return_value=[])
+    @patch("modules.sentiment_timeline.query_df")
+    def test_empty_db_returns_empty_df(self, mock_query, mock_events) -> None:
+        """When no data exists, build_timeline() returns an empty DataFrame."""
+        from modules.sentiment_timeline import build_timeline
+
+        mock_query.return_value = pd.DataFrame()
+        result = build_timeline("UnknownCompetitor")
+
+        assert result.empty
+        assert "month" in result.columns
+
+    @patch("modules.sentiment_timeline.fetch_news_events")
+    @patch("modules.sentiment_timeline.query_df")
+    def test_news_events_overlay_populates_top_event(self, mock_query, mock_events) -> None:
+        """Months with a news event must have top_event populated."""
+        from modules.sentiment_timeline import build_timeline
+
+        mock_query.return_value = _TIMELINE_RAW.copy()
+        mock_events.return_value = [
+            {"month": "2025-07", "headline": "Price hike announced", "url": None, "sentiment_score": -0.8},
+        ]
+
+        result = build_timeline("Salesforce")
+
+        july_row = result[result["month"] == "2025-07"]
+        assert not july_row.empty, "Expected a row for 2025-07"
+        assert july_row["top_event"].iloc[0] == "Price hike announced"
+
+    @patch("modules.sentiment_timeline.query_df")
+    def test_fetch_news_events_returns_worst_per_month(self, mock_query) -> None:
+        """fetch_news_events() must return exactly one (worst) event per month."""
+        from modules.sentiment_timeline import fetch_news_events
+
+        mock_query.return_value = _NEWS_RAW.copy()
+        result = fetch_news_events("Salesforce", ("2025-06-01", "2025-09-30"))
+
+        assert len(result) == 2, "Expected one event per month"
+        months = {e["month"] for e in result}
+        assert months == {"2025-07", "2025-09"}
+        required_keys = {"month", "headline", "url", "sentiment_score"}
+        for event in result:
+            assert required_keys.issubset(event.keys()), f"Missing keys in event: {event}"
+
+
+# ── Sprint 3 — Feature Wish Miner ─────────────────────────────────────────────
+
+# Fixture: two distinct wish clusters separated in embedding space.
+# Phrases 0 and 1 should cluster together; phrase 2 is orthogonal.
+_WISH_FIXTURE = pd.DataFrame(
+    {
+        "wish_phrases": [
+            json.dumps(["I wish the mobile app had offline mode"]),
+            json.dumps(["would be nice if they added offline support for the mobile app"]),
+            json.dumps(["I wish pricing was more transparent and predictable"]),
+        ]
+    }
+)
+
+
+def _mock_model_factory() -> MagicMock:
+    """Return a SentenceTransformer mock with deterministic normalized embeddings.
+
+    Phrases 0 and 1 (mobile/offline) → vectors that yield cosine sim ≥ 0.80.
+    Phrase 2 (pricing) → orthogonal vector (cosine sim = 0).
+    """
+    import numpy as np
+
+    mock_model = MagicMock()
+
+    # Encoding order matches the flattened phrase list: [phrase0, phrase1, phrase2]
+    # Using unit vectors: dot(v0, v1) = 0.95 ≥ 0.80 → same cluster
+    # dot(v0, v2) = 0.0 < 0.80 → different cluster
+    mock_model.encode.return_value = np.array(
+        [
+            [1.0, 0.0, 0.0],          # phrase 0
+            [0.951, 0.309, 0.0],       # phrase 1 — cos_sim with phrase 0 ≈ 0.951
+            [0.0, 1.0, 0.0],           # phrase 2 — orthogonal
+        ],
+        dtype=float,
+    )
+    return mock_model
+
+
+class TestFeatureWishMiner:
+    """Unit tests for modules/feature_wish_miner.py."""
+
+    @patch("modules.feature_wish_miner._get_model")
+    @patch("modules.feature_wish_miner.query_df")
+    def test_returns_required_columns(self, mock_query, mock_get_model) -> None:
+        """extract_wishes() output must have the three required columns."""
+        from modules.feature_wish_miner import extract_wishes
+
+        mock_query.return_value = _WISH_FIXTURE.copy()
+        mock_get_model.return_value = _mock_model_factory()
+
+        result = extract_wishes("Salesforce")
+
+        required = {"wish_phrase_cluster", "count", "sample_quotes"}
+        assert required.issubset(result.columns), f"Missing: {required - set(result.columns)}"
+
+    @patch("modules.feature_wish_miner._get_model")
+    @patch("modules.feature_wish_miner.query_df")
+    def test_two_distinct_phrases_form_two_clusters(self, mock_query, mock_get_model) -> None:
+        """Orthogonal phrases must yield separate clusters."""
+        from modules.feature_wish_miner import extract_wishes
+
+        mock_query.return_value = _WISH_FIXTURE.copy()
+        mock_get_model.return_value = _mock_model_factory()
+
+        result = extract_wishes("Salesforce")
+
+        # Phrases 0+1 merge (cos_sim ≈ 0.95 ≥ 0.80); phrase 2 is separate → 2 clusters
+        assert len(result) == 2, (
+            f"Expected 2 clusters (1 mobile/offline + 1 pricing), got {len(result)}"
+        )
+
+    @patch("modules.feature_wish_miner._get_model")
+    @patch("modules.feature_wish_miner.query_df")
+    def test_cluster_count_reflects_merged_phrases(self, mock_query, mock_get_model) -> None:
+        """The merged cluster must report count=2 (both mobile/offline phrases)."""
+        from modules.feature_wish_miner import extract_wishes
+
+        mock_query.return_value = _WISH_FIXTURE.copy()
+        mock_get_model.return_value = _mock_model_factory()
+
+        result = extract_wishes("Salesforce")
+
+        # Sorted by count desc — largest cluster is first
+        assert result.iloc[0]["count"] == 2, (
+            f"Mobile/offline cluster should have count=2, got {result.iloc[0]['count']}"
+        )
+
+    @patch("modules.feature_wish_miner._get_model")
+    @patch("modules.feature_wish_miner.query_df")
+    def test_empty_db_returns_empty_df(self, mock_query, mock_get_model) -> None:
+        """When no wish phrases exist, extract_wishes() returns an empty DataFrame."""
+        from modules.feature_wish_miner import extract_wishes
+
+        mock_query.return_value = pd.DataFrame()
+        result = extract_wishes("UnknownCompetitor")
+
+        assert result.empty
+        assert "wish_phrase_cluster" in result.columns
+
+    @patch("modules.feature_wish_miner._get_model")
+    def test_flag_own_features_adds_columns(self, mock_get_model) -> None:
+        """flag_own_features() must add your_product_has_it and matched_feature."""
+        import numpy as np
+
+        from modules.feature_wish_miner import flag_own_features
+
+        wish_df = pd.DataFrame(
+            {
+                "wish_phrase_cluster": ["offline mobile support", "transparent pricing"],
+                "count": [2, 1],
+                "sample_quotes": [[], []],
+            }
+        )
+
+        mock_model = MagicMock()
+        # wish embeddings: shape (2, 2); feature embeddings: shape (1, 2)
+        # sim(wish0, feature0) = 0.95 ≥ 0.45 → covered
+        # sim(wish1, feature0) = 0.10 < 0.45 → gap
+        mock_model.encode.side_effect = [
+            np.array([[1.0, 0.0], [0.0, 1.0]]),   # wish embeddings
+            np.array([[0.95, 0.31]]),               # feature embeddings (normalized)
+        ]
+        mock_get_model.return_value = mock_model
+
+        result = flag_own_features(wish_df, ["offline mobile"])
+
+        assert "your_product_has_it" in result.columns, "Missing your_product_has_it"
+        assert "matched_feature" in result.columns, "Missing matched_feature"
+        assert result["your_product_has_it"].dtype == bool or result["your_product_has_it"].dtype == object
+
+    @patch("modules.feature_wish_miner._get_model")
+    def test_empty_own_features_flags_nothing(self, mock_get_model) -> None:
+        """With an empty own_feature_list, every cluster must be flagged as a gap."""
+        from modules.feature_wish_miner import flag_own_features
+
+        wish_df = pd.DataFrame(
+            {
+                "wish_phrase_cluster": ["offline mobile support"],
+                "count": [3],
+                "sample_quotes": [[]],
+            }
+        )
+        result = flag_own_features(wish_df, own_feature_list=[])
+
+        assert not result["your_product_has_it"].any(), (
+            "No features should be covered when own_feature_list is empty"
+        )
