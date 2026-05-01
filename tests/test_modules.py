@@ -421,3 +421,164 @@ class TestFeatureWishMiner:
         assert not result["your_product_has_it"].any(), (
             "No features should be covered when own_feature_list is empty"
         )
+
+
+# ── Sprint 4 — Battlecard Generator ───────────────────────────────────────────
+
+_PAIN_FIXTURE_5 = pd.DataFrame(
+    {
+        "topic_label": [
+            "pricing_costs", "support_response", "learning_curve",
+            "mobile_app", "integration",
+        ],
+        "mention_count": [45, 30, 25, 18, 15],
+        "avg_severity": [0.86, 0.82, 0.79, 0.70, 0.65],
+        "trend_direction": ["rising", "stable", "stable", "declining", "stable"],
+        "trend_icon": ["↑", "→", "→", "↓", "→"],
+    }
+)
+
+_VALID_BATTLECARD_JSON = json.dumps(
+    {
+        "competitor": "Salesforce",
+        "generated_at": "2025-12-01T10:00:00+00:00",
+        "objections": [
+            {
+                "objection": "Salesforce has deeper enterprise features",
+                "evidence": "pricing_costs — 45 mentions, severity 0.86",
+                "counter": "We deliver 80% of Salesforce's feature depth at 40% of the cost with flat-rate pricing.",
+                "proof_quote": "The per-seat licensing cost was killing our margins — we had to find an alternative.",
+            }
+        ],
+        "feature_gaps": [
+            {
+                "gap": "offline mobile access",
+                "frequency": 18,
+                "your_advantage": "Full offline mode on iOS and Android — no signal required.",
+            }
+        ],
+        "recommended_pitch": (
+            "73% of Salesforce customers cite cost and complexity as their top complaints. "
+            "Our flat-rate pricing eliminates surprise renewals, and onboarding takes 2 weeks, not 3 months."
+        ),
+    }
+)
+
+
+class TestBattlecardGenerator:
+    """Unit tests for modules/battlecard_generator.py."""
+
+    @patch("modules.battlecard_generator._save_battlecard")
+    @patch("modules.battlecard_generator._call_claude")
+    @patch("modules.battlecard_generator.extract_wishes")
+    @patch("modules.battlecard_generator.get_pain_points")
+    def test_returns_valid_schema(
+        self, mock_pain, mock_wishes, mock_claude, mock_save
+    ) -> None:
+        """generate_battlecard() must return a dict with all four required top-level keys."""
+        from modules.battlecard_generator import generate_battlecard
+
+        mock_pain.return_value = _PAIN_FIXTURE_5.copy()
+        mock_wishes.return_value = pd.DataFrame()
+        mock_claude.return_value = _VALID_BATTLECARD_JSON
+
+        result = generate_battlecard("Salesforce")
+
+        for key in ("competitor", "generated_at", "objections", "feature_gaps", "recommended_pitch"):
+            assert key in result, f"Missing key: {key}"
+        assert result["competitor"] == "Salesforce"
+        assert isinstance(result["objections"], list)
+        assert isinstance(result["feature_gaps"], list)
+
+    @patch("modules.battlecard_generator._save_battlecard")
+    @patch("modules.battlecard_generator._call_claude")
+    @patch("modules.battlecard_generator.extract_wishes")
+    @patch("modules.battlecard_generator.get_pain_points")
+    def test_repairs_malformed_json(
+        self, mock_pain, mock_wishes, mock_claude, mock_save
+    ) -> None:
+        """When the first response is invalid JSON, a second repair call must succeed."""
+        from modules.battlecard_generator import generate_battlecard
+
+        mock_pain.return_value = _PAIN_FIXTURE_5.copy()
+        mock_wishes.return_value = pd.DataFrame()
+        # First call: malformed JSON.  Second call (repair): valid JSON.
+        mock_claude.side_effect = ["{ invalid json {{", _VALID_BATTLECARD_JSON]
+
+        result = generate_battlecard("Salesforce")
+
+        assert "competitor" in result
+        assert mock_claude.call_count == 2, (
+            "Expected exactly 2 API calls: initial + repair"
+        )
+
+    @patch("modules.battlecard_generator._save_battlecard")
+    @patch("modules.battlecard_generator._call_claude")
+    @patch("modules.battlecard_generator.extract_wishes")
+    @patch("modules.battlecard_generator.get_pain_points")
+    def test_raises_when_repair_also_fails(
+        self, mock_pain, mock_wishes, mock_claude, mock_save
+    ) -> None:
+        """generate_battlecard() must raise ValueError if both JSON parse attempts fail."""
+        from modules.battlecard_generator import generate_battlecard
+
+        mock_pain.return_value = _PAIN_FIXTURE_5.copy()
+        mock_wishes.return_value = pd.DataFrame()
+        mock_claude.side_effect = ["{ broken {{", "still broken {{"]
+
+        with pytest.raises(ValueError, match="Failed to parse battlecard JSON"):
+            generate_battlecard("Salesforce")
+
+    def test_battlecard_to_markdown_has_required_sections(self) -> None:
+        """battlecard_to_markdown() must include all structural sections."""
+        from modules.battlecard_generator import battlecard_to_markdown
+
+        card = json.loads(_VALID_BATTLECARD_JSON)
+        md = battlecard_to_markdown(card)
+
+        assert "Salesforce" in md, "Competitor name missing"
+        assert "Recommended Pitch" in md, "'Recommended Pitch' section missing"
+        assert "Objection Handlers" in md, "'Objection Handlers' section missing"
+        assert "Feature Gaps" in md, "'Feature Gaps' section missing"
+        assert "pricing_costs" in md or "enterprise" in md.lower(), (
+            "Objection content missing"
+        )
+
+    @patch("modules.battlecard_generator.generate_battlecard")
+    def test_refresh_all_battlecards_calls_each_competitor(
+        self, mock_generate
+    ) -> None:
+        """refresh_all_battlecards() must call generate_battlecard once per competitor."""
+        from config import COMPETITORS
+        from modules.battlecard_generator import refresh_all_battlecards
+
+        mock_generate.return_value = json.loads(_VALID_BATTLECARD_JSON)
+
+        refresh_all_battlecards()
+
+        assert mock_generate.call_count == len(COMPETITORS), (
+            f"Expected {len(COMPETITORS)} calls, got {mock_generate.call_count}"
+        )
+        called_names = {call.args[0] for call in mock_generate.call_args_list}
+        expected_names = {c["name"] for c in COMPETITORS}
+        assert called_names == expected_names
+
+    @patch("modules.battlecard_generator._save_battlecard")
+    @patch("modules.battlecard_generator._call_claude")
+    @patch("modules.battlecard_generator.extract_wishes")
+    @patch("modules.battlecard_generator.get_pain_points")
+    def test_empty_pain_data_still_generates(
+        self, mock_pain, mock_wishes, mock_claude, mock_save
+    ) -> None:
+        """generate_battlecard() must not crash when pain_df is empty."""
+        from modules.battlecard_generator import generate_battlecard
+
+        mock_pain.return_value = pd.DataFrame()
+        mock_wishes.return_value = pd.DataFrame()
+        mock_claude.return_value = _VALID_BATTLECARD_JSON
+
+        result = generate_battlecard("Salesforce")
+
+        assert "competitor" in result
+        # The user prompt was still constructed and the API was called
+        assert mock_claude.call_count == 1
