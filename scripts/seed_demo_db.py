@@ -44,22 +44,49 @@ _BAD_WEEK_DATES = [
     "2025-12-29", "2025-12-30", "2025-12-31", "2026-01-01",
 ]
 
+# Positive reviews inserted 30-35 days before bad-week to create a high baseline.
+# Without this, the fixture data's existing negative reviews make the 30-day avg
+# already negative (~-0.39), which dampens the sentiment_delta to only ~-0.25.
+_SALESFORCE_BASELINE_BOOST_DATES = [
+    "2025-11-21", "2025-11-22", "2025-11-23", "2025-11-24", "2025-11-25",
+    "2025-11-26", "2025-11-27", "2025-11-28", "2025-11-29", "2025-11-30",
+    "2025-12-01", "2025-12-02", "2025-12-03", "2025-12-04", "2025-12-05",
+]
+
+_SALESFORCE_POSITIVE_REVIEWS = [
+    "Salesforce has been outstanding this quarter. Excellent support, great uptime, highly recommend.",
+    "Very impressed with Salesforce reliability and their team. Best CRM for enterprise. Love it.",
+    "Salesforce is performing excellently. Superb features, wonderful support, very happy with it.",
+    "Great experience with Salesforce this month. Excellent platform, outstanding customer success team.",
+    "Salesforce is fantastic. Brilliant features, excellent uptime, amazing ROI. Highly satisfied.",
+    "Salesforce support has been outstanding. Quick responses, helpful team, excellent resolution.",
+    "Excellent performance from Salesforce. The platform is reliable, powerful, and their team is great.",
+    "Love using Salesforce. Excellent dashboards, great automation, superb reporting. Very happy.",
+    "Salesforce is the best CRM we have used. Excellent features, great support, outstanding reliability.",
+    "Outstanding experience with Salesforce this quarter. Brilliant reliability, wonderful team, highly recommend.",
+    "Salesforce has exceeded expectations. Excellent uptime, great features, superb customer success.",
+    "Very happy with Salesforce. Outstanding reliability, excellent support, great performance.",
+    "Salesforce delivers excellent value. Great features, outstanding support, superb uptime.",
+    "Loving Salesforce this month. Excellent performance, great team, wonderful customer success.",
+    "Salesforce is performing wonderfully. Excellent reliability, outstanding support, highly satisfied.",
+]
+
 _SALESFORCE_BAD_WEEK_REVIEWS = [
-    "Salesforce crashed completely for 6 hours today. We lost all sales data. Switching immediately.",
-    "Critical outage affecting our entire sales team. No ETA from support. Moving to a competitor.",
-    "Salesforce downtime is costing us thousands in lost deals. Third outage in 6 months. Done.",
-    "We are formally evaluating alternatives to Salesforce after this disaster of a week.",
-    "Salesforce support is nowhere to be found. System down, deals frozen. Embarrassing platform.",
-    "Data corruption after the latest Salesforce outage. We're done after 5 years of loyalty.",
-    "Salesforce pricing went up 30% at renewal AND they had a multi-day outage. Worst SaaS value.",
-    "Sales team completely blocked due to Salesforce downtime. No refunds offered. Outrageous.",
-    "Never again. Salesforce has failed us for the last time. Switching to alternatives today.",
-    "I am switching from Salesforce immediately. Third outage in 6 months. Leadership is furious.",
-    "The Salesforce incident has exposed how fragile our stack is. Actively switching now.",
-    "Terrible week with Salesforce. System unreliable, support unresponsive, pricing abusive.",
-    "Salesforce outage during our peak sales period. Management demands we find an alternative.",
-    "This Salesforce downtime has cost us at least 3 deals. Completely unacceptable SLA.",
-    "We've been burned by Salesforce too many times. Evaluating HubSpot and alternatives now.",
+    "Absolutely terrible. Salesforce crashed completely for 6 hours. Catastrophic data loss. Switching immediately. Worst platform ever.",
+    "Horrible outage ruining our entire sales week. Salesforce is awful and their support is useless and incompetent. Never again.",
+    "Disgusting how bad Salesforce has become. Third terrible outage in 6 months, horrific support, absurd overpriced renewal. Switching now.",
+    "Salesforce is a disaster. Terrible reliability, awful support, outrageous pricing. We hate this platform and are leaving immediately.",
+    "Worst SaaS experience ever. Salesforce downtime destroyed our sales targets. Appalling response from support. This is unacceptable garbage.",
+    "Awful awful awful. Salesforce failed us completely this week. Data corruption, terrible support, horrible downtime. We are done forever.",
+    "Terrible outage costing us thousands. Salesforce support is shockingly bad and incompetent. This is the worst software we have ever used.",
+    "Salesforce is absolutely dreadful. Horrible reliability, terrible service, overpriced garbage. Leadership furious. Switching immediately.",
+    "Worst software experience in my career. Salesforce outage is catastrophic and their response is appalling and incompetent. Switching now.",
+    "Horrific. Salesforce is a terrible platform that has failed us repeatedly. Awful support, terrible uptime. Switching to a competitor today.",
+    "Absolutely appalling Salesforce outage. Dreadful platform, horrible customer service. We hate this overpriced garbage. Never again.",
+    "Terrible terrible terrible. Salesforce crashed, support is awful, pricing is outrageous. Worst CRM decision we ever made. Done.",
+    "Salesforce is shockingly bad this week. Catastrophic downtime ruining our business. Unacceptable terrible service. Switching immediately.",
+    "Disgusted with Salesforce after this awful outage. Terrible platform, incompetent support, horrible reliability. Actively switching now.",
+    "The worst. Salesforce has been a terrible nightmare this week. Catastrophic failures, awful support, dreadful experience. Leaving today.",
 ]
 
 _SALESFORCE_OUTAGE_ARTICLE = (
@@ -481,6 +508,26 @@ def _seed_bad_week() -> None:
 
     rng = random.Random(99)
 
+    # Salesforce: 15 positive reviews dated 30-40 days BEFORE the bad week.
+    # This lifts the 30-day rolling baseline to ~+0.7 so the bad-week drop
+    # produces sentiment_delta < -0.5 (threshold for the alert to fire).
+    boost_rows = []
+    for i, text in enumerate(_SALESFORCE_POSITIVE_REVIEWS):
+        date = _SALESFORCE_BASELINE_BOOST_DATES[i % len(_SALESFORCE_BASELINE_BOOST_DATES)]
+        boost_rows.append(
+            {
+                "source": rng.choice(["g2", "trustpilot"]),
+                "competitor_name": "Salesforce",
+                "review_text": text,
+                "rating": round(rng.uniform(4.2, 5.0), 1),
+                "date": date,
+                "author_id": f"baseline_boost_{i:03d}",
+                "helpful_count": rng.randint(1, 15),
+            }
+        )
+    _insert_reviews(boost_rows)
+    logger.info("[Salesforce] Inserted %d baseline-boost positive reviews", len(boost_rows))
+
     # Salesforce: 15 very negative reviews dated in the last 7 days
     sf_rows = []
     for i, text in enumerate(_SALESFORCE_BAD_WEEK_REVIEWS):
@@ -576,14 +623,14 @@ def _print_summary() -> None:
         "SELECT competitor_name, COUNT(*) AS n FROM processed_reviews GROUP BY competitor_name"
     )
 
-    logger.info("─── Demo DB summary ────────────────────────────")
+    logger.info("=== Demo DB summary ===")
     logger.info("reviews table:")
     for _, row in reviews.iterrows():
         logger.info("  %-12s %d rows", row["competitor_name"], row["n"])
     logger.info("processed_reviews table:")
     for _, row in processed.iterrows():
         logger.info("  %-12s %d rows", row["competitor_name"], row["n"])
-    logger.info("────────────────────────────────────────────────")
+    logger.info("========================")
 
 
 def main() -> None:
