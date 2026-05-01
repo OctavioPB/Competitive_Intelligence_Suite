@@ -582,3 +582,257 @@ class TestBattlecardGenerator:
         assert "competitor" in result
         # The user prompt was still constructed and the API was called
         assert mock_claude.call_count == 1
+
+
+# ── Sprint 5 — Trigger Alerts ─────────────────────────────────────────────────
+
+
+class TestTriggerAlerts:
+    """Unit tests for modules/trigger_alerts.py."""
+
+    @patch("modules.trigger_alerts.query_df")
+    def test_sentiment_drop_fires_alert(self, mock_query) -> None:
+        """A sentiment delta below threshold must produce a sentiment_drop Alert."""
+        from modules.trigger_alerts import check_triggers
+
+        # 4 query_df calls per competitor: sentiment, news, spike-recent, spike-baseline
+        mock_query.side_effect = [
+            pd.DataFrame({"avg_delta": [-0.65]}),   # sentiment drop detected
+            pd.DataFrame(),                           # no negative news
+            pd.DataFrame({"count": [5]}),            # recent: 5
+            pd.DataFrame({"count": [60]}),           # baseline: 60/30=2/day×7=14; 5 < 28 → no spike
+        ]
+
+        alerts = check_triggers(["Salesforce"])
+
+        assert any(a.trigger_type == "sentiment_drop" for a in alerts), (
+            "Expected a sentiment_drop alert"
+        )
+
+    @patch("modules.trigger_alerts.query_df")
+    def test_negative_news_fires_alert(self, mock_query) -> None:
+        """A newsapi record containing a negative keyword must fire a negative_news Alert."""
+        from modules.trigger_alerts import check_triggers
+
+        mock_query.side_effect = [
+            pd.DataFrame({"avg_delta": [0.0]}),     # no sentiment drop
+            pd.DataFrame({                            # negative news with "outage"
+                "review_text": ["Major Salesforce outage affecting enterprise customers"],
+                "date": ["2025-12-28"],
+            }),
+            pd.DataFrame({"count": [5]}),            # no spike
+            pd.DataFrame({"count": [30]}),
+        ]
+
+        alerts = check_triggers(["Salesforce"])
+
+        assert any(a.trigger_type == "negative_news" for a in alerts), (
+            "Expected a negative_news alert"
+        )
+        news_alert = next(a for a in alerts if a.trigger_type == "negative_news")
+        assert "outage" in news_alert.evidence_summary.lower()
+
+    @patch("modules.trigger_alerts.query_df")
+    def test_review_spike_fires_alert(self, mock_query) -> None:
+        """A review count > 2× expected must produce a review_spike Alert."""
+        from modules.trigger_alerts import check_triggers
+
+        mock_query.side_effect = [
+            pd.DataFrame({"avg_delta": [0.0]}),     # no sentiment drop
+            pd.DataFrame(),                           # no news
+            pd.DataFrame({"count": [70]}),           # recent 7d: 70
+            pd.DataFrame({"count": [60]}),           # baseline 30d: 60 → 2/day × 7 = 14; 70 > 28 → spike!
+        ]
+
+        alerts = check_triggers(["Salesforce"])
+
+        assert any(a.trigger_type == "review_spike" for a in alerts), (
+            "Expected a review_spike alert"
+        )
+
+    @patch("modules.trigger_alerts.query_df")
+    def test_no_signals_returns_empty_list(self, mock_query) -> None:
+        """check_triggers() returns an empty list when no thresholds are crossed."""
+        from modules.trigger_alerts import check_triggers
+
+        mock_query.side_effect = [
+            pd.DataFrame({"avg_delta": [-0.1]}),    # above threshold
+            pd.DataFrame({
+                "review_text": ["Salesforce announced new features"],
+                "date": ["2025-12-28"],
+            }),                                       # no negative keywords
+            pd.DataFrame({"count": [8]}),            # recent
+            pd.DataFrame({"count": [90]}),           # baseline 90/30=3/day×7=21; 8 < 42 → no spike
+        ]
+
+        alerts = check_triggers(["Salesforce"])
+
+        assert alerts == [], f"Expected no alerts, got: {alerts}"
+
+    def test_generate_outreach_template_returns_string(self) -> None:
+        """generate_outreach(llm=False) must return a non-empty string for all trigger types."""
+        from modules.trigger_alerts import Alert, generate_outreach
+
+        for trigger_type in ("sentiment_drop", "negative_news", "review_spike"):
+            alert = Alert(
+                trigger_type=trigger_type,
+                competitor="Salesforce",
+                evidence_summary="Test evidence",
+            )
+            result = generate_outreach(alert, llm=False)
+            assert isinstance(result, str) and result.strip(), (
+                f"Expected non-empty string for trigger_type={trigger_type}"
+            )
+            assert "Salesforce" in result, "Competitor name must appear in outreach template"
+
+    @patch("modules.trigger_alerts._call_claude_outreach")
+    def test_generate_outreach_llm_calls_claude(self, mock_claude) -> None:
+        """generate_outreach(llm=True) must invoke _call_claude_outreach."""
+        from modules.trigger_alerts import Alert, generate_outreach
+
+        mock_claude.return_value = "Here's your personalised outreach draft."
+        alert = Alert(
+            trigger_type="sentiment_drop",
+            competitor="Salesforce",
+            evidence_summary="Test evidence",
+        )
+
+        result = generate_outreach(alert, llm=True)
+
+        mock_claude.assert_called_once_with(alert)
+        assert result == "Here's your personalised outreach draft."
+
+    def test_alert_slack_payload_has_required_blocks(self) -> None:
+        """The Slack payload for an alert must contain a 'blocks' list."""
+        from modules.trigger_alerts import Alert, _build_slack_payload
+
+        alert = Alert(
+            trigger_type="negative_news",
+            competitor="HubSpot",
+            evidence_summary="News article with ['outage'] keyword.",
+            outreach_draft="Hi, I saw the news about HubSpot...",
+        )
+        payload = _build_slack_payload(alert)
+
+        assert "blocks" in payload, "Slack payload must have a 'blocks' key"
+        assert isinstance(payload["blocks"], list)
+        assert len(payload["blocks"]) >= 3
+
+        # Header block must mention the competitor
+        header_text = payload["blocks"][0].get("text", {}).get("text", "")
+        assert "HubSpot" in header_text
+
+    @patch("outputs.slack_webhook.post_message")
+    def test_send_slack_alert_skips_when_no_webhook(self, mock_post, monkeypatch) -> None:
+        """send_slack_alert() must not call post_message when SLACK_WEBHOOK_URL is unset."""
+        from modules.trigger_alerts import Alert, send_slack_alert
+
+        monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
+        alert = Alert(
+            trigger_type="review_spike",
+            competitor="Pipedrive",
+            evidence_summary="Spike detected.",
+        )
+
+        send_slack_alert(alert)
+
+        mock_post.assert_not_called()
+
+
+# ── Sprint 5 — Hot Prospect Finder ────────────────────────────────────────────
+
+
+class TestHotProspectFinder:
+    """Unit tests for modules/hot_prospect_finder.py."""
+
+    def test_score_urgency_in_range(self) -> None:
+        """score_urgency() must always return a float in [0.0, 1.0]."""
+        from modules.hot_prospect_finder import score_urgency
+
+        posts = [
+            {},
+            {"post_text": "", "created_at": "", "upvotes": 0, "num_comments": 0, "sentiment_score": 0.0},
+            {
+                "post_text": "switching from Salesforce — looking for alternative",
+                "created_at": "2025-12-28",
+                "upvotes": 100,
+                "num_comments": 50,
+                "sentiment_score": -0.9,
+            },
+        ]
+        for post in posts:
+            score = score_urgency(post)
+            assert 0.0 <= score <= 1.0, f"Score {score} out of range for post: {post}"
+
+    def test_score_urgency_switching_phrase_adds_points(self) -> None:
+        """A post with an explicit switching phrase must score higher than one without."""
+        from modules.hot_prospect_finder import score_urgency
+
+        with_phrase = {
+            "post_text": "switching from Salesforce to something better",
+            "created_at": "2020-01-01",
+            "upvotes": 0,
+            "num_comments": 0,
+            "sentiment_score": 0.0,
+        }
+        without_phrase = {
+            "post_text": "Salesforce is a popular CRM tool",
+            "created_at": "2020-01-01",
+            "upvotes": 0,
+            "num_comments": 0,
+            "sentiment_score": 0.0,
+        }
+        assert score_urgency(with_phrase) > score_urgency(without_phrase), (
+            "Post with switching phrase must score higher"
+        )
+
+    def test_score_urgency_no_signals_returns_zero(self) -> None:
+        """A benign post with no signals must score 0.0."""
+        from modules.hot_prospect_finder import score_urgency
+
+        post = {
+            "post_text": "Salesforce released a new feature today.",
+            "created_at": "2020-01-01",
+            "upvotes": 0,
+            "num_comments": 0,
+            "sentiment_score": 0.0,
+        }
+        assert score_urgency(post) == 0.0
+
+    @patch("modules.pain_point_radar.get_pain_points")
+    def test_enrich_lead_adds_required_fields(self, mock_pain) -> None:
+        """enrich_lead() must add complaint_summary, company_signals, and suggested_angle."""
+        from modules.hot_prospect_finder import enrich_lead
+
+        mock_pain.return_value = _PAIN_FIXTURE_5.copy()
+
+        lead = {
+            "post_text": "Switching from Salesforce. The pricing is terrible and Microsoft keeps asking us to switch.",
+            "competitor_name": "Salesforce",
+            "post_id": "abc123",
+            "username": "test_user",
+            "post_url": "https://reddit.com/r/test",
+            "created_at": "2025-12-20",
+            "upvotes": 10,
+            "num_comments": 5,
+            "sentiment_score": -0.65,
+        }
+
+        result = enrich_lead(lead)
+
+        assert "complaint_summary" in result, "Missing complaint_summary"
+        assert "company_signals" in result, "Missing company_signals"
+        assert "suggested_angle" in result, "Missing suggested_angle"
+        assert isinstance(result["complaint_summary"], str) and result["complaint_summary"]
+        assert isinstance(result["company_signals"], list)
+        assert "Salesforce" in result["suggested_angle"] or "pricing" in result["suggested_angle"]
+
+    def test_scan_reddit_raises_without_credentials(self, monkeypatch) -> None:
+        """scan_reddit() must raise RuntimeError when Reddit credentials are absent."""
+        from modules.hot_prospect_finder import scan_reddit
+
+        monkeypatch.delenv("REDDIT_CLIENT_ID", raising=False)
+        monkeypatch.delenv("REDDIT_CLIENT_SECRET", raising=False)
+
+        with pytest.raises(RuntimeError, match="REDDIT_CLIENT_ID"):
+            scan_reddit(["Salesforce"], ["CRM"])

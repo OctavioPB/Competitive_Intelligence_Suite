@@ -349,4 +349,69 @@ Scrape and monitor competitor pricing pages over time. Detect pricing changes, n
 
 ---
 
-*Last updated: see git log. This file is maintained alongside the codebase — update it when architecture changes.*
+## Sprint Build Log
+
+```
+Sprint 0 — Scaffold + Foundation     [x] Completed
+Sprint 1 — Data Foundation           [x] Completed
+Sprint 2 — Pain Point Radar (M01)    [x] Completed
+Sprint 3 — Timeline + Wish Miner     [x] Completed
+Sprint 4 — Battlecard Generator      [x] Completed
+Sprint 5 — Alerts + Prospects        [x] Completed
+Sprint 6 — Demo Polish               [x] Completed (2026-04-30)
+```
+
+---
+
+## Lessons Learned (Sprints 0–6)
+
+### Patch targets for lazy imports
+When a function imports a dependency inside its body (`from X import Y` inside `def foo():`),
+the correct mock target is `X.Y`, not `calling_module.Y`. At test time `Y` is not a module-level
+attribute of the calling module and patching it has no effect.
+
+Concrete cases:
+- `send_slack_alert()` lazily imports `post_message` from `outputs.slack_webhook` → patch target: `outputs.slack_webhook.post_message`
+- `enrich_lead()` lazily imports `get_pain_points` from `modules.pain_point_radar` → patch target: `modules.pain_point_radar.get_pain_points`
+
+**Rule:** before patching, grep for `from X import Y` inside the function under test to find the real module path.
+
+### MAX(date) anchor pattern for fixture data
+All time-windowed SQL queries (`_SENTIMENT_SQL`, `_NEWS_SQL`, `_SPIKE_RECENT_SQL`, etc.) anchor
+on `MAX(date)` from the dataset rather than `datetime.now()`. This ensures fixture data with dates
+ending in 2025-12 always produces meaningful signals and never returns empty results.
+
+**Rule:** any query with a relative time window (`'-7 days'`, `'-30 days'`) must use
+`date((SELECT MAX(date) FROM table), '-N days')` as the anchor, not `date('now', '-N days')`.
+
+### Demo DB seeding: set DATABASE_URL before all project imports
+`database/db.py` reads `DATABASE_URL` at call time (inside `_db_path()`), not at import time.
+To target a non-default DB, set `os.environ["DATABASE_URL"] = "target.db"` as the very first
+statement in the script, before `sys.path.insert` and before any project module imports.
+
+### weasyprint on Windows requires GTK+ runtime
+`weasyprint` raises `OSError: cannot load library 'libpango-1.0-0'` on Windows without the
+GTK+ binaries. Detect availability at module import with a try/except and fall back to HTML bytes:
+```python
+_WEASYPRINT_AVAILABLE = False
+try:
+    import weasyprint
+    _WEASYPRINT_AVAILABLE = True
+except (ImportError, OSError):
+    pass
+```
+The UI download button adapts its label and MIME type automatically.
+
+### Review spike SQL: two-query design is simpler than a CTE
+`_check_review_spike` uses two separate `query_df()` calls (recent 7-day + 30-day baseline)
+instead of a single multi-CTE query. This makes the mock in tests trivial: use
+`side_effect=[recent_df, baseline_df]` on the patched `query_df`.
+
+### Stub battlecards for demo mode avoid Claude API costs
+Rather than calling `generate_battlecard()` during `seed_demo_db.py`, ship high-quality
+stub JSON files matching `BATTLECARD_SCHEMA`. They are read by `load_cached_battlecard()`
+identically to Claude-generated cards. Zero API cost for demo prep.
+
+---
+
+*Last updated: 2026-04-30. This file is maintained alongside the codebase — update it when architecture changes.*
