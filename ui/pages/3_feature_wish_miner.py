@@ -49,7 +49,7 @@ st.markdown(
     background-size:48px 48px;">
         <div style="font-family:'Fraunces',Georgia,serif;font-weight:300;
                     color:#ffffff;font-size:28px;margin:0 0 8px;">
-            💡 Feature Wish Miner
+            Feature Wish Miner
         </div>
         <div style="color:rgba(255,255,255,0.6);font-size:14px;
                     font-family:'Plus Jakarta Sans',sans-serif;line-height:1.6;">
@@ -133,9 +133,9 @@ else:
     for _, row in display_df.iterrows():
         covered_flag = bool(row["your_product_has_it"])
         badge = (
-            '<span class="rs-badge-covered">✓ We have this</span>'
+            '<span class="rs-badge-covered">We have this</span>'
             if covered_flag
-            else '<span class="rs-badge-gap">● Gap</span>'
+            else '<span class="rs-badge-gap">Gap</span>'
         )
 
         matched = row.get("matched_feature") or ""

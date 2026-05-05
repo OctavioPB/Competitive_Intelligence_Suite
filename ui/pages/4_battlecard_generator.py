@@ -79,7 +79,7 @@ st.markdown(
     background-size:48px 48px;">
         <div style="font-family:'Fraunces',Georgia,serif;font-weight:300;
                     color:#ffffff;font-size:28px;margin:0 0 8px;">
-            🃏 Battlecard Generator
+            Battlecard Generator
         </div>
         <div style="color:rgba(255,255,255,0.6);font-size:14px;
                     font-family:'Plus Jakarta Sans',sans-serif;line-height:1.6;">
@@ -108,7 +108,7 @@ card: dict | None = st.session_state.get(card_key)
 
 with col_btn:
     st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
-    btn_label = "🔄 Regenerate" if card else "⚡ Generate Battlecard"
+    btn_label = "Regenerate" if card else "Generate Battlecard"
     generate_clicked = st.button(btn_label, use_container_width=True)
 
 if generate_clicked:
@@ -237,7 +237,7 @@ dl_cols = st.columns(3)
 with dl_cols[0]:
     md_bytes = battlecard_to_markdown(card).encode("utf-8")
     st.download_button(
-        label="⬇ Download Markdown",
+        label="Download Markdown",
         data=md_bytes,
         file_name=f"battlecard_{competitor.lower().replace(' ', '_')}.md",
         mime="text/markdown",
@@ -247,7 +247,7 @@ with dl_cols[0]:
 with dl_cols[1]:
     content_bytes, mime_type = generate_pdf_bytes(card)
     ext = "pdf" if _WEASYPRINT_AVAILABLE else "html"
-    label = "⬇ Download PDF" if _WEASYPRINT_AVAILABLE else "⬇ Download HTML"
+    label = "Download PDF" if _WEASYPRINT_AVAILABLE else "Download HTML"
     st.download_button(
         label=label,
         data=content_bytes,

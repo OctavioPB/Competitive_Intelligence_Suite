@@ -38,7 +38,7 @@ _TREND_SQL = """
 _RISING_THRESHOLD = 0.10   # > 10% increase → rising
 _DECLINING_THRESHOLD = 0.10  # > 10% decrease → declining
 
-_TREND_ICONS = {"rising": "↑", "stable": "→", "declining": "↓"}
+_TREND_ICONS = {"rising": "", "stable": "", "declining": ""}
 
 
 def compute_trend(topic_id: int, window_days: int = 30) -> str:

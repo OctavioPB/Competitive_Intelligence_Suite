@@ -257,7 +257,7 @@ def render_sentiment_timeline(df: pd.DataFrame, title: str) -> None:
     )
 
     fig.update_layout(
-        **_LAYOUT_BASE,
+        **{**_LAYOUT_BASE, "margin": dict(l=0, r=80, t=56, b=16)},
         title=dict(
             text=title,
             font=dict(family=_TITLE_FONT, size=18, color="#003366"),
@@ -280,7 +280,6 @@ def render_sentiment_timeline(df: pd.DataFrame, title: str) -> None:
         ),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         height=440,
-        margin=dict(l=0, r=80, t=56, b=16),
     )
 
     st.plotly_chart(fig, use_container_width=True)

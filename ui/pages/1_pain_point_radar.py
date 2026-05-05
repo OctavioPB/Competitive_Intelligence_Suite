@@ -187,7 +187,6 @@ def render() -> None:
     )
 
     chart_df = df.copy()
-    chart_df["topic_label"] = chart_df["topic_label"] + "  " + chart_df["trend_icon"]
 
     render_bar_chart(chart_df, x="mention_count", y="topic_label",
                      title=f"{competitor} — Top Pain Points", color_column="avg_severity")
@@ -212,7 +211,7 @@ def render() -> None:
             <td style="padding:12px 16px;text-align:center;font-family:'Plus Jakarta Sans',sans-serif;">{row['mention_count']:,}</td>
             <td style="padding:12px 16px;text-align:center;">{_severity_badge(row['avg_severity'])}</td>
             <td style="padding:12px 16px;text-align:center;">
-                <span class="trend-badge {trend_css}">{row['trend_icon']} {row['trend_direction'].title()}</span>
+                <span class="trend-badge {trend_css}">{row['trend_direction'].title()}</span>
             </td>
         </tr>"""
 

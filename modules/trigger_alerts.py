@@ -170,11 +170,11 @@ def _check_review_spike(competitor: str) -> Alert | None:
 
 
 def _build_slack_payload(alert: Alert) -> dict:
-    emoji = {
-        "sentiment_drop": "📉",
-        "negative_news": "📰",
-        "review_spike": "🔔",
-    }.get(alert.trigger_type, "⚠️")
+    alert_label = {
+        "sentiment_drop": "[Sentiment Drop]",
+        "negative_news": "[Negative News]",
+        "review_spike": "[Review Spike]",
+    }.get(alert.trigger_type, "[Alert]")
     ts = alert.timestamp.strftime("%Y-%m-%d %H:%M UTC")
     return {
         "blocks": [
@@ -182,7 +182,7 @@ def _build_slack_payload(alert: Alert) -> dict:
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": f"{emoji} RivalSense Alert: {alert.competitor}",
+                    "text": f"{alert_label} RivalSense Alert: {alert.competitor}",
                 },
             },
             {

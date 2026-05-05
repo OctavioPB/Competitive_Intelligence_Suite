@@ -30,7 +30,7 @@ st.markdown(
     background-size:48px 48px;">
         <div style="font-family:'Fraunces',Georgia,serif;font-weight:300;
                     color:#ffffff;font-size:28px;margin:0 0 8px;">
-            🔥 Hot Prospect Finder
+            Hot Prospect Finder
         </div>
         <div style="color:rgba(255,255,255,0.6);font-size:14px;
                     font-family:'Plus Jakarta Sans',sans-serif;line-height:1.6;">
@@ -139,9 +139,9 @@ def _fixture_leads() -> pd.DataFrame:
 # ── Controls ──────────────────────────────────────────────────────────────────
 ctrl_cols = st.columns([1, 1, 2])
 with ctrl_cols[0]:
-    scan_clicked = st.button("🔍 Scan Reddit", use_container_width=True)
+    scan_clicked = st.button("Scan Reddit", use_container_width=True)
 with ctrl_cols[1]:
-    demo_clicked = st.button("🎭 Load Demo Leads", use_container_width=True)
+    demo_clicked = st.button("Load Demo Leads", use_container_width=True)
 
 if demo_clicked:
     with st.spinner("Loading fixture leads…"):
@@ -246,7 +246,7 @@ for _, row in prospects_df.head(10).iterrows():
         sigs_str = str(company_sigs)[:60]
 
     post_url = row.get("post_url", "#")
-    link = f'<a href="{post_url}" target="_blank" style="color:#003366;">↗</a>'
+    link = f'<a href="{post_url}" target="_blank" style="color:#003366;font-size:12px;">View</a>'
 
     rows_html += f"""
         <tr style='border-bottom:1px solid #F0F4F8;'>
@@ -318,7 +318,7 @@ with export_cols[0]:
     csv_buf = io.StringIO()
     prospects_df.to_csv(csv_buf, index=False)
     st.download_button(
-        label="⬇ Export CSV",
+        label="Export CSV",
         data=csv_buf.getvalue().encode("utf-8"),
         file_name="hot_prospects.csv",
         mime="text/csv",
@@ -328,7 +328,7 @@ with export_cols[0]:
 with export_cols[1]:
     json_data = prospects_df.to_json(orient="records", indent=2, force_ascii=False)
     st.download_button(
-        label="⬇ Export JSON",
+        label="Export JSON",
         data=json_data.encode("utf-8"),
         file_name="hot_prospects.json",
         mime="application/json",

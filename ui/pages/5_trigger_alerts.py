@@ -48,7 +48,7 @@ st.markdown(
     background-size:48px 48px;">
         <div style="font-family:'Fraunces',Georgia,serif;font-weight:300;
                     color:#ffffff;font-size:28px;margin:0 0 8px;">
-            🔔 Trigger Alerts
+            Trigger Alerts
         </div>
         <div style="color:rgba(255,255,255,0.6);font-size:14px;
                     font-family:'Plus Jakarta Sans',sans-serif;line-height:1.6;">
@@ -113,9 +113,9 @@ def _demo_alerts() -> list[Alert]:
 # ── Controls ──────────────────────────────────────────────────────────────────
 ctrl_cols = st.columns([1, 1, 2])
 with ctrl_cols[0]:
-    scan_clicked = st.button("🔍 Scan All Competitors", use_container_width=True)
+    scan_clicked = st.button("Scan All Competitors", use_container_width=True)
 with ctrl_cols[1]:
-    demo_clicked = st.button("🎭 Simulate Bad Week", use_container_width=True)
+    demo_clicked = st.button("Simulate Bad Week", use_container_width=True)
 
 if demo_clicked:
     st.session_state["alerts"] = _demo_alerts()
@@ -171,9 +171,9 @@ if not alerts:
     )
 else:
     _BADGE_MAP = {
-        "sentiment_drop": ("📉 Sentiment Drop", "rs-badge-drop"),
-        "negative_news": ("📰 Negative News", "rs-badge-news"),
-        "review_spike": ("🔔 Review Spike", "rs-badge-spike"),
+        "sentiment_drop": ("Sentiment Drop", "rs-badge-drop"),
+        "negative_news": ("Negative News", "rs-badge-news"),
+        "review_spike": ("Review Spike", "rs-badge-spike"),
     }
     _BORDER_MAP = {
         "sentiment_drop": "sentiment_drop",
@@ -233,7 +233,7 @@ else:
                     st.session_state["alerts"] = sorted_alerts
                     st.rerun()
             with outreach_cols[1]:
-                if st.button("✨ Claude draft", key=f"llm_{state_key}", use_container_width=True):
+                if st.button("Claude draft", key=f"llm_{state_key}", use_container_width=True):
                     with st.spinner("Generating personalised outreach…"):
                         alert.outreach_draft = generate_outreach(alert, llm=True)
                     st.session_state["alerts"] = sorted_alerts
