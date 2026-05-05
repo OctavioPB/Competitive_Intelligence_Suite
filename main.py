@@ -228,6 +228,7 @@ st.html(
         <a href="/battlecard-generator" target="_top">Battlecard</a>
         <a href="/trigger-alerts" target="_top">Alerts</a>
         <a href="/hot-prospect-finder" target="_top">Prospects</a>
+        <a href="/info" target="_top">Info</a>
       </div>
     </nav>
     """
@@ -263,11 +264,13 @@ wish_miner = st.Page("ui/pages/3_feature_wish_miner.py", title="Feature Wish Min
 battlecard = st.Page("ui/pages/4_battlecard_generator.py", title="Battlecard Generator", url_path="battlecard-generator")
 alerts = st.Page("ui/pages/5_trigger_alerts.py", title="Trigger Alerts", url_path="trigger-alerts")
 prospects = st.Page("ui/pages/6_hot_prospect_radar.py", title="Hot Prospect Finder", url_path="hot-prospect-finder")
+info = st.Page("ui/pages/7_info.py", title="Platform Info", url_path="info")
 
 pg = st.navigation(
     {
         "": [home],
         "Intelligence Modules": [pain_radar, sentiment, wish_miner, battlecard, alerts, prospects],
+        "About": [info],
     }
 )
 pg.run()
