@@ -2,7 +2,7 @@
 
 > Six intelligence modules. Public data. Actionable signals for your sales team.
 
-RivalSense scrapes public reviews, social media, and news; processes them through a shared NLP pipeline; and surfaces six distinct intelligence outputs — ranked pain points, sentiment timelines, feature gap analysis, AI-generated battlecards, vulnerability alerts, and switching-intent prospect leads.
+RivalSense is a Competitive Intelligence Suite that scrapes public reviews, social media, and news; processes them through a shared NLP pipeline; and surfaces six distinct intelligence outputs — ranked pain points, sentiment timelines, feature gap analysis, AI-generated battlecards, vulnerability alerts, and switching-intent prospect leads.
 
 ---
 
