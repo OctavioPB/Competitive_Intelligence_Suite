@@ -99,7 +99,7 @@ def render_bar_chart(
         height=max(320, len(df) * 44),
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def render_line_chart(
@@ -167,7 +167,7 @@ def render_line_chart(
         height=380,
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def render_sentiment_timeline(df: pd.DataFrame, title: str) -> None:
@@ -282,4 +282,4 @@ def render_sentiment_timeline(df: pd.DataFrame, title: str) -> None:
         height=440,
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")

@@ -68,7 +68,7 @@ _BRAND_CSS = """
 </style>
 """
 
-st.markdown(_BRAND_CSS, unsafe_allow_html=True)
+st.html(_BRAND_CSS)
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
 st.markdown(
@@ -109,7 +109,7 @@ card: dict | None = st.session_state.get(card_key)
 with col_btn:
     st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
     btn_label = "Regenerate" if card else "Generate Battlecard"
-    generate_clicked = st.button(btn_label, use_container_width=True)
+    generate_clicked = st.button(btn_label, width="stretch")
 
 if generate_clicked:
     with st.spinner(f"Claude is generating the {competitor} battlecard — this takes ~10s…"):
@@ -206,7 +206,7 @@ else:
                 </td>
             </tr>
         """
-    st.markdown(
+    st.html(
         f"""
         <table style='width:100%;border-collapse:collapse;font-family:"Plus Jakarta Sans",sans-serif;
                       font-size:13px;background:#ffffff;border-radius:10px;overflow:hidden;
@@ -226,8 +226,7 @@ else:
             </thead>
             <tbody>{gap_rows}</tbody>
         </table>
-        """,
-        unsafe_allow_html=True,
+        """
     )
 
 # ── Download buttons ──────────────────────────────────────────────────────────
@@ -241,7 +240,7 @@ with dl_cols[0]:
         data=md_bytes,
         file_name=f"battlecard_{competitor.lower().replace(' ', '_')}.md",
         mime="text/markdown",
-        use_container_width=True,
+        width="stretch",
     )
 
 with dl_cols[1]:
@@ -253,7 +252,7 @@ with dl_cols[1]:
         data=content_bytes,
         file_name=f"battlecard_{competitor.lower().replace(' ', '_')}.{ext}",
         mime=mime_type,
-        use_container_width=True,
+        width="stretch",
     )
 
 with dl_cols[2]:

@@ -38,7 +38,7 @@ _BRAND_CSS = """
 </style>
 """
 
-st.markdown(_BRAND_CSS, unsafe_allow_html=True)
+st.html(_BRAND_CSS)
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
 st.markdown(
@@ -179,8 +179,20 @@ else:
             </tr>
         """
 
-    st.markdown(
+    st.html(
         f"""
+        <style>
+        .rs-badge-covered {{
+            display:inline-block;background:#E0F7EF;color:#0D5C3A;
+            font-size:10px;letter-spacing:2px;text-transform:uppercase;
+            padding:3px 10px;border-radius:20px;font-weight:600;
+        }}
+        .rs-badge-gap {{
+            display:inline-block;background:#FEF0E6;color:#7A3800;
+            font-size:10px;letter-spacing:2px;text-transform:uppercase;
+            padding:3px 10px;border-radius:20px;font-weight:600;
+        }}
+        </style>
         <table style='width:100%;border-collapse:collapse;
                       font-family:"Plus Jakarta Sans",sans-serif;font-size:13px;
                       background:#ffffff;border-radius:10px;overflow:hidden;
@@ -200,6 +212,5 @@ else:
             </thead>
             <tbody>{rows_html}</tbody>
         </table>
-        """,
-        unsafe_allow_html=True,
+        """
     )

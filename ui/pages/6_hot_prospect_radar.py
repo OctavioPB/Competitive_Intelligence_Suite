@@ -19,7 +19,7 @@ _BRAND_CSS = """
 </style>
 """
 
-st.markdown(_BRAND_CSS, unsafe_allow_html=True)
+st.html(_BRAND_CSS)
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
 st.markdown(
@@ -139,9 +139,9 @@ def _fixture_leads() -> pd.DataFrame:
 # ── Controls ──────────────────────────────────────────────────────────────────
 ctrl_cols = st.columns([1, 1, 2])
 with ctrl_cols[0]:
-    scan_clicked = st.button("Scan Reddit", use_container_width=True)
+    scan_clicked = st.button("Scan Reddit", width="stretch")
 with ctrl_cols[1]:
-    demo_clicked = st.button("Load Demo Leads", use_container_width=True)
+    demo_clicked = st.button("Load Demo Leads", width="stretch")
 
 if demo_clicked:
     with st.spinner("Loading fixture leads…"):
@@ -276,7 +276,7 @@ for _, row in prospects_df.head(10).iterrows():
         </tr>
     """
 
-st.markdown(
+st.html(
     f"""
     <table style='width:100%;border-collapse:collapse;
                   font-family:"Plus Jakarta Sans",sans-serif;font-size:13px;
@@ -306,8 +306,7 @@ st.markdown(
         </thead>
         <tbody>{rows_html}</tbody>
     </table>
-    """,
-    unsafe_allow_html=True,
+    """
 )
 
 # ── Export buttons ────────────────────────────────────────────────────────────
@@ -322,7 +321,7 @@ with export_cols[0]:
         data=csv_buf.getvalue().encode("utf-8"),
         file_name="hot_prospects.csv",
         mime="text/csv",
-        use_container_width=True,
+        width="stretch",
     )
 
 with export_cols[1]:
@@ -332,5 +331,5 @@ with export_cols[1]:
         data=json_data.encode("utf-8"),
         file_name="hot_prospects.json",
         mime="application/json",
-        use_container_width=True,
+        width="stretch",
     )

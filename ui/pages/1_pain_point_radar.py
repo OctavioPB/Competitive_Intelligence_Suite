@@ -124,7 +124,7 @@ def _severity_badge(severity: float) -> str:
 
 def render() -> None:
     """Render the Pain Point Radar page."""
-    st.markdown(_BRAND_CSS, unsafe_allow_html=True)
+    st.html(_BRAND_CSS)
 
     # ── Hero ──────────────────────────────────────────────────────────────────
     st.markdown(
@@ -233,7 +233,7 @@ def render() -> None:
         <tbody>{rows_html}</tbody>
     </table>
     """
-    st.markdown(table_html, unsafe_allow_html=True)
+    st.html(table_html)
 
 
 # Entry point when Streamlit runs this file via st.navigation()

@@ -37,7 +37,7 @@ _BRAND_CSS = """
 </style>
 """
 
-st.markdown(_BRAND_CSS, unsafe_allow_html=True)
+st.html(_BRAND_CSS)
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
 st.markdown(
@@ -113,9 +113,9 @@ def _demo_alerts() -> list[Alert]:
 # ── Controls ──────────────────────────────────────────────────────────────────
 ctrl_cols = st.columns([1, 1, 2])
 with ctrl_cols[0]:
-    scan_clicked = st.button("Scan All Competitors", use_container_width=True)
+    scan_clicked = st.button("Scan All Competitors", width="stretch")
 with ctrl_cols[1]:
-    demo_clicked = st.button("Simulate Bad Week", use_container_width=True)
+    demo_clicked = st.button("Simulate Bad Week", width="stretch")
 
 if demo_clicked:
     st.session_state["alerts"] = _demo_alerts()
@@ -228,12 +228,12 @@ else:
         else:
             outreach_cols = st.columns([1, 1, 3])
             with outreach_cols[0]:
-                if st.button("Template draft", key=f"tmpl_{state_key}", use_container_width=True):
+                if st.button("Template draft", key=f"tmpl_{state_key}", width="stretch"):
                     alert.outreach_draft = generate_outreach(alert, llm=False)
                     st.session_state["alerts"] = sorted_alerts
                     st.rerun()
             with outreach_cols[1]:
-                if st.button("Claude draft", key=f"llm_{state_key}", use_container_width=True):
+                if st.button("Claude draft", key=f"llm_{state_key}", width="stretch"):
                     with st.spinner("Generating personalised outreach…"):
                         alert.outreach_draft = generate_outreach(alert, llm=True)
                     st.session_state["alerts"] = sorted_alerts

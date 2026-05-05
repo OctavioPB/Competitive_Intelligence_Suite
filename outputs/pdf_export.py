@@ -11,7 +11,7 @@ _BATTLECARD_DIR = Path("outputs/battlecards")
 try:
     from weasyprint import HTML as _WeasyHTML  # type: ignore[import]
     _WEASYPRINT_AVAILABLE = True
-except ImportError:
+except (ImportError, OSError):
     _WEASYPRINT_AVAILABLE = False
     logger.warning(
         "weasyprint is not installed. PDF export will fall back to HTML. "

@@ -39,7 +39,7 @@ _BRAND_CSS = """
 </style>
 """
 
-st.markdown(_BRAND_CSS, unsafe_allow_html=True)
+st.html(_BRAND_CSS)
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
 st.markdown(
@@ -160,7 +160,7 @@ if not event_df.empty:
             </tr>
         """
 
-    st.markdown(
+    st.html(
         f"""
         <table style='width:100%;border-collapse:collapse;
                       font-family:"Plus Jakarta Sans",sans-serif;font-size:13px;
@@ -181,6 +181,5 @@ if not event_df.empty:
             </thead>
             <tbody>{rows_html}</tbody>
         </table>
-        """,
-        unsafe_allow_html=True,
+        """
     )
