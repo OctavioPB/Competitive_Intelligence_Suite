@@ -20,21 +20,44 @@ st.markdown(
     """
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;1,9..144,300;1,9..144,400&display=swap" rel="stylesheet">
     <style>
-    /* Sidebar brand styling */
+    /* ── Sidebar background ────────────────────────────── */
     section[data-testid="stSidebar"] {
         background-color: #003366;
     }
-    section[data-testid="stSidebar"] * {
+
+    /* ── Our injected markdown (logo, badge, divider) ──── */
+    section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+    section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] div,
+    section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] span {
         color: rgba(255,255,255,0.75) !important;
     }
-    section[data-testid="stSidebar"] a[aria-selected="true"] {
+
+    /* ── Streamlit nav links — white text on dark blue ─── */
+    section[data-testid="stSidebar"] [data-testid="stSidebarNavItems"] button,
+    section[data-testid="stSidebar"] [data-testid="stSidebarNavItems"] button p,
+    section[data-testid="stSidebar"] [data-testid="stSidebarNavItems"] button span {
+        color: rgba(255,255,255,0.70) !important;
+    }
+
+    /* Active nav item — gold */
+    section[data-testid="stSidebar"] [data-testid="stSidebarNavItems"] button[kind="secondary"],
+    section[data-testid="stSidebar"] [data-testid="stSidebarNavItems"] [aria-current="page"] button {
         color: #C8982A !important;
         border-left: 2px solid #C8982A;
+        background: rgba(200,152,42,0.08) !important;
     }
-    /* Page background */
+
+    /* Nav group label (section header "Intelligence Modules") */
+    section[data-testid="stSidebar"] [data-testid="stSidebarNavItems"] span {
+        color: rgba(255,255,255,0.40) !important;
+        font-size: 10px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+    }
+
+    /* ── Page background ───────────────────────────────── */
     .stApp { background-color: #F4F6F9; }
     .block-container { padding-top: 1.5rem !important; }
-    /* Hide default Streamlit header decoration */
     header[data-testid="stHeader"] { background: transparent; }
     </style>
     """,
