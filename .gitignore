@@ -1,3 +1,7 @@
+# Planning and dev notes
+planning/
+dev_notes/
+
 # Python
 __pycache__/
 *.py[cod]
