@@ -4,7 +4,7 @@
 
 RivalSense is a Competitive Intelligence Suite that scrapes public reviews, social media, and news; processes them through a shared NLP pipeline; and surfaces six distinct intelligence outputs — ranked pain points, sentiment timelines, feature gap analysis, AI-generated battlecards, vulnerability alerts, and switching-intent prospect leads.
 
-RivalSense is an all-in-one competitive intelligence tool that turns messy public data into a clear edge for your business. By tracking what customers and the news are saying about competitors in real-time, the platform identifies exactly where other companies are failing and where you can win. It provides practical tools—like ready-to-use battlecards for sales teams and lists of unhappy customers ready to switch—allowing you to act on market gaps before the competition even realizes they exist. Investing in this suite means moving from guessing what the market wants to having a data-backed roadmap for capturing more market share.
+All-in-one competitive intelligence tool that turns messy public data into a clear edge for your business. By tracking what customers and the news are saying about competitors in real-time, the platform identifies exactly where other companies are failing and where you can win. It provides practical tools—like ready-to-use battlecards for sales teams and lists of unhappy customers ready to switch—allowing you to act on market gaps before the competition even realizes they exist. Investing in this suite means moving from guessing what the market wants to having a data-backed roadmap for capturing more market share.
 
 ---
 
