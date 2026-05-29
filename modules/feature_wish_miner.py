@@ -24,8 +24,7 @@ _WISH_SQL = """
       AND wish_phrases != '[]'
 """
 
-# Module-level lazy cache: the model is ~90 MB and loads in ~2 s.
-# Caching at module scope means the Streamlit page only loads it once.
+# Module-level lazy cache: the model is ~90 MB and loads in ~2 s on cold start.
 _model: Any = None
 
 

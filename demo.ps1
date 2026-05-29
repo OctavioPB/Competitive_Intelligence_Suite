@@ -1,43 +1,28 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    RivalSense -- one-command demo launcher.
+    RivalSense — one-command launcher (React + FastAPI).
 
 .DESCRIPTION
-    Streamlit mode (default):
-      1.  Kills any process on port 8501.
-      2.  Loads .env.
-      3.  Finds Python virtualenv.
-      4.  Installs requirements if needed.
-      5.  Opens Streamlit in a new window.
-      6.  Opens browser.
-
-    React mode (-React):
-      1.  Kills processes on ports 8000 (FastAPI) and 5173 (Vite).
-      2.  Loads .env.
-      3.  Finds Python virtualenv.
-      4.  Installs Python requirements if needed.
-      5.  Installs npm dependencies if needed.
-      6.  Opens FastAPI backend window (port 8000).
-      7.  Opens Vite dev server window (port 5173).
-      8.  Waits for both, then opens browser.
+    1.  Kills processes on ports 8000 (FastAPI) and 5173 (Vite).
+    2.  Loads .env.
+    3.  Finds Python virtualenv.
+    4.  Installs Python requirements if needed.
+    5.  Installs npm dependencies if needed.
+    6.  Opens FastAPI backend window (port 8000).
+    7.  Opens Vite dev server window (port 5173).
+    8.  Waits for both, then opens browser.
 
 .PARAMETER Demo
-    Set DEMO_MODE=true (fixture data, no API keys required). Applies to both modes.
-
-.PARAMETER React
-    Launch the React + FastAPI stack instead of Streamlit.
+    Set DEMO_MODE=true (fixture data, no API keys required).
 
 .EXAMPLE
-    .\demo.ps1               # Streamlit, live data
-    .\demo.ps1 -Demo         # Streamlit, demo data
-    .\demo.ps1 -React        # React + FastAPI, live data
-    .\demo.ps1 -React -Demo  # React + FastAPI, demo data
+    .\demo.ps1           # live data
+    .\demo.ps1 -Demo     # demo data (no API keys needed)
 #>
 
 param(
-    [switch]$Demo  = $true,
-    [switch]$React = $true
+    [switch]$Demo = $true
 )
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
@@ -101,11 +86,7 @@ function Wait-Http {
 
 Write-Host ""
 Write-Host "  ======================================================" -ForegroundColor DarkCyan
-if ($React) {
-    Write-Host "     RivalSense  --  React + FastAPI Stack              " -ForegroundColor Cyan
-} else {
-    Write-Host "     RivalSense  --  Streamlit Stack                    " -ForegroundColor Cyan
-}
+Write-Host "     RivalSense  --  React + FastAPI                    " -ForegroundColor Cyan
 Write-Host "  ======================================================" -ForegroundColor DarkCyan
 Write-Host ""
 if ($Demo) {
@@ -113,9 +94,7 @@ if ($Demo) {
     Write-Host ""
 }
 
-# =============================================================================
-# SHARED: Load .env + find Python
-# =============================================================================
+# ── Load .env ─────────────────────────────────────────────────────────────────
 
 Write-Step "Loading environment variables"
 
@@ -144,6 +123,8 @@ Get-Content $EnvFile | ForEach-Object {
 if ($Demo) { [System.Environment]::SetEnvironmentVariable('DEMO_MODE', 'true', 'Process'); Write-Warn "DEMO_MODE overridden to true" }
 Write-Ok "$envVarsLoaded variables loaded from .env"
 
+# ── Find Python ───────────────────────────────────────────────────────────────
+
 Write-Step "Locating Python"
 $pythonExe = $null
 foreach ($candidate in @((Join-Path $RepoRoot '.venv\Scripts\python.exe'), (Join-Path $RepoRoot 'venv\Scripts\python.exe'))) {
@@ -168,43 +149,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Ok "Python packages available"
 }
 
-# =============================================================================
-# STREAMLIT MODE
-# =============================================================================
-
-if (-not $React) {
-    $StreamlitPort = 8501
-
-    Write-Step "Clearing port $StreamlitPort"
-    Kill-Port $StreamlitPort
-    Write-Ok "Port $StreamlitPort cleared"
-
-    Write-Step "Opening Streamlit window  (port $StreamlitPort)"
-    $demoLine = if ($Demo) { '$env:DEMO_MODE = ''true''; ' } else { '' }
-    $cmd = $demoLine + 'Set-Location ''' + $RepoRoot + '''; & ''' + $pythonExe + ''' -m streamlit run main.py --server.port ' + $StreamlitPort + ' --server.headless true'
-    Start-EncodedWindow -Title "RivalSense :$StreamlitPort" -Command $cmd
-    Write-Ok "Streamlit window opened"
-
-    Write-Step "Waiting for Streamlit ..."
-    $appUrl = "http://localhost:$StreamlitPort"
-    $ready  = Wait-Http $appUrl
-    if ($ready) { Write-Ok "Streamlit is responding" } else { Write-Warn "Not yet up -- opening browser anyway" }
-    Start-Process $appUrl
-    Write-Ok "Browser opened at $appUrl"
-
-    $div = "  " + ("-" * 56)
-    Write-Host ""; Write-Host $div -ForegroundColor DarkGray
-    Write-Host "  RivalSense (Streamlit)     $appUrl" -ForegroundColor Green
-    Write-Host $div -ForegroundColor DarkGray
-    Write-Host "  Demo mode:  .\demo.ps1 -Demo" -ForegroundColor Gray
-    Write-Host "  React mode: .\demo.ps1 -React" -ForegroundColor Gray
-    Write-Host ""
-    return
-}
-
-# =============================================================================
-# REACT MODE
-# =============================================================================
+# ── Ports ─────────────────────────────────────────────────────────────────────
 
 $ApiPort      = 8000
 $FrontendPort = 5173
@@ -215,7 +160,8 @@ Kill-Port $ApiPort
 Kill-Port $FrontendPort
 Write-Ok "Ports cleared"
 
-# ── npm install if needed ──────────────────────────────────────────────────────
+# ── npm install if needed ─────────────────────────────────────────────────────
+
 Write-Step "Checking npm dependencies"
 $nodeModules = Join-Path $FrontendDir 'node_modules'
 if (-not (Test-Path $nodeModules)) {
@@ -232,7 +178,8 @@ if (-not (Test-Path $nodeModules)) {
     Write-Ok "node_modules found"
 }
 
-# ── FastAPI backend window ─────────────────────────────────────────────────────
+# ── FastAPI backend ───────────────────────────────────────────────────────────
+
 Write-Step "Opening FastAPI backend window  (port $ApiPort)"
 $demoLine   = if ($Demo) { '$env:DEMO_MODE = ''true''; ' } else { '' }
 $apiCommand = $demoLine +
@@ -242,13 +189,15 @@ $apiCommand = $demoLine +
 Start-EncodedWindow -Title "RivalSense API :$ApiPort" -Command $apiCommand
 Write-Ok "FastAPI window opened  ->  http://localhost:$ApiPort"
 
-# ── Vite dev server window ─────────────────────────────────────────────────────
+# ── Vite dev server ───────────────────────────────────────────────────────────
+
 Write-Step "Opening Vite dev server window  (port $FrontendPort)"
 $feCommand = 'Set-Location ''' + $FrontendDir + '''; npm run dev'
 Start-EncodedWindow -Title "RivalSense UI :$FrontendPort" -Command $feCommand -WorkDir $FrontendDir
 Write-Ok "Vite window opened  ->  http://localhost:$FrontendPort"
 
-# ── Wait for API then browser ──────────────────────────────────────────────────
+# ── Wait for API then open browser ───────────────────────────────────────────
+
 Write-Step "Waiting for FastAPI ..."
 $apiReady = Wait-Http "http://localhost:$ApiPort/api/meta/competitors"
 if ($apiReady) { Write-Ok "API is responding" } else { Write-Warn "API not yet up -- opening browser anyway" }
@@ -267,6 +216,6 @@ Write-Host "  FastAPI backend       http://localhost:$ApiPort"              -For
 Write-Host "  API docs (Swagger)    http://localhost:$ApiPort/docs"         -ForegroundColor Cyan
 Write-Host $div                                                             -ForegroundColor DarkGray
 Write-Host ""
-Write-Host "  Demo mode:      .\demo.ps1 -React -Demo" -ForegroundColor Gray
-Write-Host "  Streamlit mode: .\demo.ps1"               -ForegroundColor Gray
+Write-Host "  Demo mode:  .\demo.ps1 -Demo" -ForegroundColor Gray
+Write-Host "  Live mode:  .\demo.ps1 -Demo:`$false" -ForegroundColor Gray
 Write-Host ""

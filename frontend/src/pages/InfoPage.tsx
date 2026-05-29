@@ -50,6 +50,8 @@ const TECH_STACK = [
   { layer: 'AI / LLM', tech: 'Claude claude-sonnet-4-6 via Anthropic SDK' },
   { layer: 'Sentiment scoring', tech: 'VADER (NLTK) + custom pipeline' },
   { layer: 'Data ingestion', tech: 'G2, Trustpilot, Reddit (PRAW), NewsAPI' },
+  { layer: 'Scheduling', tech: 'APScheduler (daily scrape, weekly digest)' },
+  { layer: 'Alerts / export', tech: 'Slack Webhooks · SendGrid · CSV/JSON' },
 ]
 
 const card: React.CSSProperties = {

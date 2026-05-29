@@ -29,7 +29,7 @@ def _alert_to_dict(alert: Alert) -> dict:
 
 
 def _demo_alerts() -> list[Alert]:
-    """Return the hardcoded bad-week demo fixture (matches Streamlit page exactly)."""
+    """Return the hardcoded bad-week demo fixture."""
     ts = datetime(2025, 12, 27, 9, 0, 0)
     return [
         Alert(

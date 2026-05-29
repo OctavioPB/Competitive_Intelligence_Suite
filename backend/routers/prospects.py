@@ -36,7 +36,7 @@ def _lead_to_dict(lead: dict) -> dict:
 
 
 def _fixture_leads() -> list[dict]:
-    """Return the 5 deterministic fixture leads (same as Streamlit page)."""
+    """Return the 5 deterministic fixture leads."""
     base = datetime(2025, 12, 25)
     posts = [
         {

@@ -644,7 +644,7 @@ def main() -> None:
     _write_battlecard_stubs()
     _print_summary()
 
-    logger.info("Done. Run: DEMO_MODE=true streamlit run main.py")
+    logger.info("Done. Run: .\\demo.ps1 to launch the React + FastAPI stack.")
 
 
 if __name__ == "__main__":

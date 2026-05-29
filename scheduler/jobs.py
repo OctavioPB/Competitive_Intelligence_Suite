@@ -61,13 +61,16 @@ def job_send_digest() -> None:
     logger.info("Scheduled job: digest complete.")
 
 
+_scheduler_started = False
+
+
 def start_scheduler() -> None:
     """Start the APScheduler BackgroundScheduler with all daily jobs.
 
-    Only starts when DEMO_MODE is not 'true'. Guards against double-initialisation
-    via st.session_state so Streamlit reruns don't spawn multiple schedulers.
+    Only starts when DEMO_MODE is not 'true'. A module-level boolean guards
+    against double-initialisation on repeated calls (e.g. from FastAPI lifespan).
     """
-    import streamlit as st
+    global _scheduler_started
     from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore[import]
 
     demo_mode = os.getenv("DEMO_MODE", "false").lower() == "true"
@@ -75,7 +78,7 @@ def start_scheduler() -> None:
         logger.info("DEMO_MODE=true — APScheduler not started.")
         return
 
-    if st.session_state.get("_scheduler_started"):
+    if _scheduler_started:
         return
 
     scheduler = BackgroundScheduler()
@@ -84,7 +87,5 @@ def start_scheduler() -> None:
     scheduler.add_job(job_send_digest, "cron", day_of_week="mon", hour=7, minute=0, id="weekly_digest")
     scheduler.start()
 
-    st.session_state["_scheduler_started"] = True
-    logger.info(
-        "APScheduler started: daily_scrape@02:00, daily_alerts@03:00."
-    )
+    _scheduler_started = True
+    logger.info("APScheduler started: daily_scrape@02:00, daily_alerts@03:00, weekly_digest@Mon07:00.")
