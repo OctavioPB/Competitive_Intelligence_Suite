@@ -37,3 +37,11 @@ CREATE INDEX IF NOT EXISTS idx_processed_competitor  ON processed_reviews(compet
 CREATE INDEX IF NOT EXISTS idx_processed_topic       ON processed_reviews(topic_label);
 CREATE INDEX IF NOT EXISTS idx_processed_date        ON processed_reviews(date);
 CREATE INDEX IF NOT EXISTS idx_processed_sentiment   ON processed_reviews(sentiment_score);
+
+CREATE TABLE IF NOT EXISTS digests (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    generated_at  TEXT    NOT NULL,
+    report_json   TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_digests_generated ON digests(generated_at);

@@ -38,6 +38,29 @@ def job_check_alerts() -> None:
     logger.info("Scheduled job: %d alert(s) fired.", len(alerts))
 
 
+def job_send_digest() -> None:
+    """Weekly job: generate intelligence digest and send via email + Slack."""
+    import os
+
+    from config import COMPETITOR_NAMES
+    from modules.digest_generator import generate_digest
+
+    logger.info("Scheduled job: generating weekly intelligence digest ...")
+    try:
+        digest = generate_digest(COMPETITOR_NAMES)
+        logger.info("Digest generated: %s", digest.get("generated_at", ""))
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Digest generation failed: %s", exc)
+        return
+
+    to_email = os.getenv("DIGEST_EMAIL", "")
+    if to_email:
+        from outputs.email_digest import send_weekly_digest
+        send_weekly_digest(alerts=[], leads_df=None, to_email=to_email)
+
+    logger.info("Scheduled job: digest complete.")
+
+
 def start_scheduler() -> None:
     """Start the APScheduler BackgroundScheduler with all daily jobs.
 
@@ -58,6 +81,7 @@ def start_scheduler() -> None:
     scheduler = BackgroundScheduler()
     scheduler.add_job(job_scrape_and_process, "cron", hour=2, minute=0, id="daily_scrape")
     scheduler.add_job(job_check_alerts, "cron", hour=3, minute=0, id="daily_alerts")
+    scheduler.add_job(job_send_digest, "cron", day_of_week="mon", hour=7, minute=0, id="weekly_digest")
     scheduler.start()
 
     st.session_state["_scheduler_started"] = True
