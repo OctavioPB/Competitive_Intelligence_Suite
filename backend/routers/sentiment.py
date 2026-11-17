@@ -1,21 +1,11 @@
 """Sentiment router — competitor sentiment timeline."""
 
-import math
-
 from fastapi import APIRouter, Query
 
+from backend.deps import json_safe, known_competitor
 from modules.sentiment_timeline import build_timeline
 
 router = APIRouter(tags=["sentiment"])
-
-
-def _safe(value):
-    """Convert NaN/inf/None to None for JSON serialisation."""
-    if value is None:
-        return None
-    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-        return None
-    return value
 
 
 @router.get("/sentiment")
@@ -23,20 +13,17 @@ def sentiment_timeline(
     competitor: str = Query("Salesforce", description="Competitor name"),
     months: int = Query(18, ge=1, le=60, description="Number of months to include"),
 ):
-    df = build_timeline(competitor, months)
-    if df.empty:
-        return {"competitor": competitor, "months": months, "timeline": []}
+    df = build_timeline(known_competitor(competitor), months)
 
-    timeline = []
-    for _, row in df.iterrows():
-        timeline.append(
-            {
-                "month": str(row["month"]),
-                "avg_sentiment": _safe(float(row["avg_sentiment"])),
-                "stddev": _safe(float(row["stddev"])) if "stddev" in row else None,
-                "review_count": int(row["review_count"]) if "review_count" in row else 0,
-                "top_event": _safe(row.get("top_event")),
-            }
-        )
+    timeline = [
+        {
+            "month": str(row.month),
+            "avg_sentiment": json_safe(float(row.avg_sentiment)),
+            "stddev": json_safe(float(row.stddev)),
+            "review_count": int(row.review_count),
+            "top_event": row.top_event if isinstance(row.top_event, str) else None,
+        }
+        for row in df.itertuples(index=False)
+    ]
 
     return {"competitor": competitor, "months": months, "timeline": timeline}

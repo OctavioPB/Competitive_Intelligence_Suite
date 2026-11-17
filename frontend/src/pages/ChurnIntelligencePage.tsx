@@ -1,46 +1,14 @@
 import { useState } from 'react'
-import type React from 'react'
 import { api } from '../services/api'
 import type { ChurnAnalysis, ChurnBucket } from '../services/api'
 import Eyebrow from '../components/Eyebrow'
 import Spinner from '../components/Spinner'
+import Toast from '../components/Toast'
+import { errorMessage, useToast } from '../hooks/useToast'
 import KpiCard from '../components/KpiCard'
 import CompetitorSelect from '../components/CompetitorSelect'
 import { useAppStore } from '../stores/appStore'
-
-const heroStyle: React.CSSProperties = {
-  backgroundColor: 'var(--primary)',
-  backgroundImage:
-    'linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)',
-  backgroundSize: '48px 48px',
-  padding: '56px 48px',
-}
-
-const card: React.CSSProperties = {
-  backgroundColor: 'var(--white)',
-  borderRadius:    'var(--radius-md)',
-  boxShadow:       'var(--shadow-card)',
-  border:          '1px solid var(--primary-10)',
-}
-
-const btnGold: React.CSSProperties = {
-  fontFamily:      'var(--fb)',
-  fontSize:        10,
-  fontWeight:      700,
-  letterSpacing:   '2px',
-  textTransform:   'uppercase',
-  backgroundColor: 'var(--gold)',
-  color:           '#fff',
-  border:          'none',
-  borderRadius:    'var(--radius-sm)',
-  padding:         '10px 22px',
-  cursor:          'pointer',
-}
-
-const btnNavy: React.CSSProperties = {
-  ...btnGold,
-  backgroundColor: 'var(--primary)',
-}
+import { heroStyle, btnGold, btnNavy, card } from '../styles/shared'
 
 function trendColor(dir: string): string {
   if (dir === 'worsening') return 'var(--status-red)'
@@ -100,26 +68,30 @@ export default function ChurnIntelligencePage() {
   const { competitor } = useAppStore()
   const [analysis, setAnalysis] = useState<ChurnAnalysis | null>(null)
   const [loading,  setLoading]  = useState(false)
+  const { toast, showToast } = useToast()
 
   function handleAnalyse() {
     setLoading(true)
     api.churn.analyse(competitor)
       .then(setAnalysis)
-      .catch(() => setAnalysis(null))
+      .catch((err) => showToast(errorMessage(err, 'Churn analysis failed. Check API key and backend.'), 'error'))
       .finally(() => setLoading(false))
   }
 
   function handleLoadCached() {
     setLoading(true)
     api.churn.getCached(competitor)
-      .then((r) => { if (r) setAnalysis(r) })
-      .catch(() => {/* silently skip */})
+      .then((r) => {
+        if (r) setAnalysis(r)
+        else showToast('No cached analysis for this competitor yet. Click Analyse to create one.', 'warning')
+      })
+      .catch((err) => showToast(errorMessage(err, 'Failed to load cached analysis.'), 'error'))
       .finally(() => setLoading(false))
   }
 
   const topBucket   = analysis?.buckets[0]
   const worstBucket = analysis?.buckets.find((b) => b.trend_direction === 'worsening')
-  const maxPct      = analysis ? Math.max(...analysis.buckets.map((b) => b.mention_pct)) : 0
+  const maxPct      = analysis ? Math.max(0, ...analysis.buckets.map((b) => b.mention_pct)) : 0
 
   return (
     <div>
@@ -157,6 +129,8 @@ export default function ChurnIntelligencePage() {
               Load Cached
             </button>
           </div>
+
+          {toast && <Toast message={toast.msg} type={toast.type} />}
 
           {loading && (
             <div>

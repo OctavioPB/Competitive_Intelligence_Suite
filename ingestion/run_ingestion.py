@@ -17,34 +17,50 @@ from ingestion.scraper_g2 import ScrapingError
 
 logger = logging.getLogger(__name__)
 
+# Insert only reviews not already stored, so re-running ingestion (e.g. the daily
+# scheduler job) never duplicates rows and inflates mention counts.
 _INSERT_SQL = """
     INSERT INTO reviews (source, competitor_name, review_text, rating, date, author_id, helpful_count)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    SELECT :source, :competitor_name, :review_text, :rating, :date, :author_id, :helpful_count
+    WHERE NOT EXISTS (
+        SELECT 1 FROM reviews
+        WHERE competitor_name = :competitor_name
+          AND source          = :source
+          AND date            = :date
+          AND review_text     = :review_text
+    )
 """
 
-_DEMO_MODE: bool = os.getenv("DEMO_MODE", "false").lower() == "true"
+
+def _demo_mode() -> bool:
+    return os.getenv("DEMO_MODE", "false").lower() == "true"
 
 
-def _store_reviews(rows: list[dict[str, Any]]) -> None:
-    """Bulk-insert review rows into the reviews table."""
+def _store_reviews(rows: list[dict[str, Any]]) -> int:
+    """Bulk-insert review rows into the reviews table, skipping ones already stored.
+
+    Returns:
+        Number of new rows inserted.
+    """
     params = [
-        (
-            r["source"],
-            r["competitor_name"],
-            r["review_text"],
-            r.get("rating"),
-            r.get("date", ""),
-            r.get("author_id", ""),
-            r.get("helpful_count", 0),
-        )
+        {
+            "source": r["source"],
+            "competitor_name": r["competitor_name"],
+            "review_text": r["review_text"],
+            "rating": r.get("rating"),
+            "date": r.get("date", ""),
+            "author_id": r.get("author_id", ""),
+            "helpful_count": r.get("helpful_count", 0),
+        }
         for r in rows
     ]
-    executemany(_INSERT_SQL, params)
+    return executemany(_INSERT_SQL, params)
 
 
 def _scrape_with_fallback(competitor: CompetitorConfig) -> list[dict[str, Any]]:
     """Try all live scrapers for a competitor; fall back to fixtures on failure."""
-    from ingestion import scraper_g2, scraper_reddit, scraper_newsapi
+    # Imported lazily: praw / newsapi are only needed for live scraping.
+    from ingestion import scraper_g2, scraper_newsapi, scraper_reddit, scraper_trustpilot
 
     all_reviews: list[dict[str, Any]] = []
 
@@ -56,18 +72,20 @@ def _scrape_with_fallback(competitor: CompetitorConfig) -> list[dict[str, Any]]:
         all_reviews.extend(fixture_module.generate(competitor))
         return all_reviews  # fixtures already contain all source types
 
+    # Trustpilot
+    try:
+        all_reviews.extend(scraper_trustpilot.scrape_reviews(competitor))
+    except ScrapingError as exc:
+        logger.warning("Trustpilot scraper failed for %s: %s", competitor["name"], exc)
+
     # Reddit
     try:
-        from ingestion import scraper_reddit
-
         all_reviews.extend(scraper_reddit.scrape_posts(competitor, SUBREDDITS))
     except ScrapingError as exc:
         logger.warning("Reddit scraper failed for %s: %s", competitor["name"], exc)
 
     # NewsAPI
     try:
-        from ingestion import scraper_newsapi
-
         all_reviews.extend(scraper_newsapi.fetch_articles(competitor))
     except ScrapingError as exc:
         logger.warning("NewsAPI scraper failed for %s: %s", competitor["name"], exc)
@@ -83,11 +101,11 @@ def run_for_competitor(competitor: CompetitorConfig, use_fixtures: bool = False)
         use_fixtures: If True, skip live scraping and use synthetic fixture data.
 
     Returns:
-        Number of reviews stored.
+        Number of new reviews stored (already-stored reviews are skipped).
     """
     name = competitor["name"]
 
-    if use_fixtures or _DEMO_MODE:
+    if use_fixtures or _demo_mode():
         logger.info("[%s] Using fixture data (DEMO_MODE or --use-fixtures).", name)
         reviews = fixture_module.generate(competitor)
     else:
@@ -97,9 +115,12 @@ def run_for_competitor(competitor: CompetitorConfig, use_fixtures: bool = False)
         logger.warning("[%s] No reviews collected — skipping DB write.", name)
         return 0
 
-    _store_reviews(reviews)
-    logger.info("[%s] Stored %d reviews.", name, len(reviews))
-    return len(reviews)
+    inserted = _store_reviews(reviews)
+    logger.info(
+        "[%s] Stored %d new reviews (%d already present).",
+        name, inserted, len(reviews) - inserted,
+    )
+    return inserted
 
 
 def main() -> None:

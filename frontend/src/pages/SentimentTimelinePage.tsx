@@ -1,5 +1,4 @@
-﻿import { useEffect, useState } from 'react'
-import type React from 'react'
+import { useEffect, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { api } from '../services/api'
 import type { TimelineEntry } from '../services/api'
@@ -7,14 +6,7 @@ import Eyebrow from '../components/Eyebrow'
 import Spinner from '../components/Spinner'
 import KpiCard from '../components/KpiCard'
 import CompetitorSelect from '../components/CompetitorSelect'
-
-const heroStyle: React.CSSProperties = {
-  backgroundColor: 'var(--primary)',
-  backgroundImage:
-    'linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)',
-  backgroundSize: '48px 48px',
-  padding: '56px 48px',
-}
+import { heroStyle, thStyle } from '../styles/shared'
 
 function SentimentChart({ timeline }: { timeline: TimelineEntry[] }) {
   if (timeline.length === 0) return null
@@ -73,7 +65,7 @@ function SentimentChart({ timeline }: { timeline: TimelineEntry[] }) {
       <polyline
         points={pts}
         fill="none"
-        stroke="#003366"
+        style={{ stroke: 'var(--chart-line)' }}
         strokeWidth={2}
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -99,11 +91,11 @@ function SentimentChart({ timeline }: { timeline: TimelineEntry[] }) {
             fontSize={12}
             fill="#c8982a"
           >
-            â˜…
+            ★
           </text>
         ) : null,
       )}
-      {/* X-axis labels â€” show every 3rd */}
+      {/* X-axis labels — show every 3rd */}
       {timeline.map((e, i) =>
         i % 3 === 0 ? (
           <text
@@ -130,12 +122,15 @@ export default function SentimentTimelinePage() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
+    // Guard against out-of-order responses when the selection changes quickly.
+    let cancelled = false
     setLoading(true)
     api.sentiment
       .get(competitor, months)
-      .then((r) => setTimeline(r.timeline))
-      .catch(() => setTimeline([]))
-      .finally(() => setLoading(false))
+      .then((r) => { if (!cancelled) setTimeline(r.timeline) })
+      .catch(() => { if (!cancelled) setTimeline([]) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [competitor, months])
 
   const overallSentiment =
@@ -149,20 +144,9 @@ export default function SentimentTimelinePage() {
 
   const totalReviews = timeline.reduce((s, e) => s + e.review_count, 0)
 
-  const thStyle: React.CSSProperties = {
-    fontFamily: 'var(--fb)',
-    fontSize: 10,
-    fontWeight: 600,
-    letterSpacing: '2px',
-    textTransform: 'uppercase',
-    color: '#fff',
-    padding: '10px 14px',
-    textAlign: 'left',
-  }
-
   return (
     <div>
-      {/* â”€â”€ Hero â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <div style={heroStyle}>
         <div style={{ maxWidth: 'var(--max-width-dashboard)', margin: '0 auto' }}>
           <Eyebrow light>Sentiment Analysis</Eyebrow>
@@ -188,13 +172,13 @@ export default function SentimentTimelinePage() {
               maxWidth: 560,
             }}
           >
-            18-month rolling competitor sentiment with news event overlay â€” spot
+            18-month rolling competitor sentiment with news event overlay — spot
             drops before your competitors recover.
           </p>
         </div>
       </div>
 
-      {/* â”€â”€ Body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Body ─────────────────────────────────────────────────────────── */}
       <div style={{ backgroundColor: 'var(--light)', minHeight: '60vh' }}>
         <div
           style={{
@@ -304,7 +288,7 @@ export default function SentimentTimelinePage() {
                 <KpiCard
                   label="Trend"
                   value={`${trendDelta > 0 ? '+' : ''}${trendDelta.toFixed(2)}`}
-                  sub="first â†’ last month"
+                  sub="first → last month"
                   valueColor={
                     trendDelta >= 0 ? 'var(--status-green)' : 'var(--status-red)'
                   }

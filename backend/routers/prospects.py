@@ -1,20 +1,14 @@
 """Prospects router — hot prospect finder."""
 
-import math
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter
 
+from backend.deps import json_safe
 from config import COMPETITOR_NAMES, SUBREDDITS
 from modules.hot_prospect_finder import enrich_lead, scan_reddit, score_urgency
 
 router = APIRouter(tags=["prospects"])
-
-
-def _safe(value):
-    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-        return None
-    return value
 
 
 def _lead_to_dict(lead: dict) -> dict:
@@ -28,7 +22,7 @@ def _lead_to_dict(lead: dict) -> dict:
         "post_url": str(lead.get("post_url", "")),
         "created_at": str(lead.get("created_at", "")),
         "competitor_name": str(lead.get("competitor_name", "")),
-        "urgency_score": _safe(float(lead.get("urgency_score", 0.0))) or 0.0,
+        "urgency_score": json_safe(float(lead.get("urgency_score", 0.0))) or 0.0,
         "complaint_summary": str(lead.get("complaint_summary", "")),
         "company_signals": [str(s) for s in company_signals],
         "suggested_angle": str(lead.get("suggested_angle", "")),
@@ -116,13 +110,23 @@ def _fixture_leads() -> list[dict]:
         },
     ]
 
+    return _rank(posts)
+
+
+def _rank(posts: list[dict], limit: int | None = None) -> list[dict]:
+    """Enrich, score and sort posts by urgency (highest first).
+
+    Enrichment runs first because it fills in sentiment_score when the post has
+    none (live Reddit rows) and score_urgency() weights that signal at up to 0.30.
+    """
     enriched = []
     for post in posts:
-        post["urgency_score"] = score_urgency(post)
-        enriched.append(enrich_lead(post))
+        lead = enrich_lead(post)
+        lead["urgency_score"] = score_urgency(lead)
+        enriched.append(lead)
 
-    enriched.sort(key=lambda x: x.get("urgency_score", 0), reverse=True)
-    return [_lead_to_dict(lead) for lead in enriched]
+    enriched.sort(key=lambda x: x["urgency_score"], reverse=True)
+    return [_lead_to_dict(lead) for lead in enriched[:limit]]
 
 
 @router.get("/prospects/demo")
@@ -139,14 +143,9 @@ def scan_prospects():
         if raw_df.empty:
             return []
 
-        enriched = []
-        for _, row in raw_df.iterrows():
-            post_dict = row.to_dict()
-            post_dict["urgency_score"] = score_urgency(post_dict)
-            enriched.append(enrich_lead(post_dict))
-
-        enriched.sort(key=lambda x: x.get("urgency_score", 0), reverse=True)
-        return [_lead_to_dict(lead) for lead in enriched[:20]]
+        # The same thread can match several subreddit/competitor searches.
+        raw_df = raw_df.drop_duplicates(subset=["post_id", "competitor_name"])
+        return _rank(raw_df.to_dict(orient="records"), limit=20)
     except RuntimeError:
         # Reddit credentials not configured — return fixture data
         return _fixture_leads()

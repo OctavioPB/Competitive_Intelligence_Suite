@@ -1,6 +1,6 @@
-import type React from 'react'
 import type { Page } from '../App'
 import Eyebrow from '../components/Eyebrow'
+import { heroStyle } from '../styles/shared'
 
 const MODULES: { page: Page; title: string; desc: string }[] = [
   {
@@ -33,15 +33,22 @@ const MODULES: { page: Page; title: string; desc: string }[] = [
     title: 'Hot Prospect Finder',
     desc: 'Surface Reddit users actively switching away from competitors.',
   },
+  {
+    page: 'churn',
+    title: 'Churn Intelligence',
+    desc: 'See why users leave each competitor, bucketed with proof quotes.',
+  },
+  {
+    page: 'digest',
+    title: 'Intelligence Digest',
+    desc: 'One-page weekly executive brief across every competitor.',
+  },
+  {
+    page: 'outreach',
+    title: 'Outreach Composer',
+    desc: "Turn a prospect's complaint into email, LinkedIn and call scripts.",
+  },
 ]
-
-const heroStyle: React.CSSProperties = {
-  backgroundColor: 'var(--primary)',
-  backgroundImage:
-    'linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)',
-  backgroundSize: '48px 48px',
-  padding: '56px 48px',
-}
 
 export default function HomePage({
   onNavigate,
@@ -83,7 +90,7 @@ export default function HomePage({
               lineHeight: 1.7,
             }}
           >
-            Six AI-powered modules that transform raw competitor signals — reviews,
+            Nine AI-powered modules that transform raw competitor signals — reviews,
             Reddit posts, news — into revenue-ready sales intelligence.
           </p>
         </div>

@@ -2,10 +2,12 @@
 
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 import praw
 from praw.exceptions import PRAWException
+from prawcore.exceptions import PrawcoreException
 
 from config import CompetitorConfig
 from ingestion.scraper_g2 import ScrapingError
@@ -60,10 +62,7 @@ def scrape_posts(
     posts: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
 
-    try:
-        reddit = _build_client()
-    except ScrapingError:
-        raise
+    reddit = _build_client()
 
     for subreddit_name in subreddits:
         for keyword in keywords:
@@ -79,11 +78,9 @@ def scrape_posts(
                     if not text or len(text) < 30:
                         continue
 
-                    import datetime as _dt
-
-                    post_date = _dt.datetime.utcfromtimestamp(post.created_utc).strftime(
-                        "%Y-%m-%d"
-                    )
+                    post_date = datetime.fromtimestamp(
+                        post.created_utc, tz=timezone.utc
+                    ).strftime("%Y-%m-%d")
                     posts.append(
                         {
                             "source": "reddit",
@@ -95,7 +92,8 @@ def scrape_posts(
                             "helpful_count": int(post.score),
                         }
                     )
-            except PRAWException as exc:
+            # prawcore raises auth / HTTP failures and is not a PRAWException subclass
+            except (PRAWException, PrawcoreException) as exc:
                 logger.warning(
                     "Reddit API error for r/%s / '%s': %s", subreddit_name, keyword, exc
                 )

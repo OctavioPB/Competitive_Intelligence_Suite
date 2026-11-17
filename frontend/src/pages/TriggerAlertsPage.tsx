@@ -1,38 +1,13 @@
-﻿import { useState } from 'react'
-import type React from 'react'
+import { useState } from 'react'
 import { api } from '../services/api'
 import type { Alert } from '../services/api'
 import Eyebrow from '../components/Eyebrow'
 import Spinner from '../components/Spinner'
+import Toast from '../components/Toast'
+import { errorMessage, useToast } from '../hooks/useToast'
 import KpiCard from '../components/KpiCard'
 import StatusBadge from '../components/StatusBadge'
-
-const heroStyle: React.CSSProperties = {
-  backgroundColor: 'var(--primary)',
-  backgroundImage:
-    'linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)',
-  backgroundSize: '48px 48px',
-  padding: '56px 48px',
-}
-
-const btnGold: React.CSSProperties = {
-  fontFamily: 'var(--fb)',
-  fontSize: 10,
-  fontWeight: 700,
-  letterSpacing: '2px',
-  textTransform: 'uppercase',
-  backgroundColor: 'var(--gold)',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 'var(--radius-sm)',
-  padding: '10px 22px',
-  cursor: 'pointer',
-}
-
-const btnNavy: React.CSSProperties = {
-  ...btnGold,
-  backgroundColor: 'var(--primary)',
-}
+import { heroStyle, btnGold, btnNavy } from '../styles/shared'
 
 // Badge uses semantic status tokens. Alert card border is always gold (structural rule).
 const BADGE_MAP: Record<string, { label: string; color: string; bg: string }> = {
@@ -45,6 +20,7 @@ function AlertCard({ alert }: { alert: Alert }) {
   const [draft, setDraft] = useState<string | null>(alert.outreach_draft)
   const [expanded, setExpanded] = useState(false)
   const [loadingDraft, setLoadingDraft] = useState(false)
+  const { toast, showToast } = useToast()
 
   const badge = BADGE_MAP[alert.trigger_type] ?? {
     label: alert.trigger_type,
@@ -60,7 +36,7 @@ function AlertCard({ alert }: { alert: Alert }) {
         setDraft(r.draft)
         setExpanded(true)
       })
-      .catch(() => {/* silently fail */})
+      .catch((err) => showToast(errorMessage(err, 'Could not draft outreach.'), 'error'))
       .finally(() => setLoadingDraft(false))
   }
 
@@ -140,7 +116,7 @@ function AlertCard({ alert }: { alert: Alert }) {
               marginBottom: expanded ? 10 : 0,
             }}
           >
-            {expanded ? 'Hide' : 'View'} outreach draft â–¾
+            {expanded ? 'Hide' : 'View'} outreach draft ▾
           </button>
           {expanded && (
             <textarea
@@ -177,6 +153,7 @@ function AlertCard({ alert }: { alert: Alert }) {
           )}
         </div>
       )}
+      {toast && <Toast message={toast.msg} type={toast.type} />}
     </div>
   )
 }
@@ -184,13 +161,14 @@ function AlertCard({ alert }: { alert: Alert }) {
 export default function TriggerAlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([])
   const [loading, setLoading] = useState(false)
+  const { toast, showToast } = useToast()
 
   function handleScan() {
     setLoading(true)
     api.alerts
       .scan()
       .then(setAlerts)
-      .catch(() => setAlerts([]))
+      .catch((err) => showToast(errorMessage(err, 'Alert scan failed. Is the backend running?'), 'error'))
       .finally(() => setLoading(false))
   }
 
@@ -199,7 +177,7 @@ export default function TriggerAlertsPage() {
     api.alerts
       .demo()
       .then(setAlerts)
-      .catch(() => setAlerts([]))
+      .catch((err) => showToast(errorMessage(err, 'Could not load demo alerts.'), 'error'))
       .finally(() => setLoading(false))
   }
 
@@ -213,7 +191,7 @@ export default function TriggerAlertsPage() {
 
   return (
     <div>
-      {/* â”€â”€ Hero â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <div style={heroStyle}>
         <div style={{ maxWidth: 'var(--max-width-dashboard)', margin: '0 auto' }}>
           <Eyebrow light>Trigger Alerts</Eyebrow>
@@ -239,13 +217,13 @@ export default function TriggerAlertsPage() {
               maxWidth: 560,
             }}
           >
-            Real-time competitor vulnerability signals â€” sentiment drops, negative
-            news, and review spikes â€” with pre-drafted outreach ready to send.
+            Real-time competitor vulnerability signals — sentiment drops, negative
+            news, and review spikes — with pre-drafted outreach ready to send.
           </p>
         </div>
       </div>
 
-      {/* â”€â”€ Body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Body ─────────────────────────────────────────────────────────── */}
       <div style={{ backgroundColor: 'var(--light)', minHeight: '60vh' }}>
         <div
           style={{
@@ -266,6 +244,8 @@ export default function TriggerAlertsPage() {
               Simulate Bad Week
             </button>
           </div>
+
+          {toast && <Toast message={toast.msg} type={toast.type} />}
 
           {loading && <Spinner />}
 

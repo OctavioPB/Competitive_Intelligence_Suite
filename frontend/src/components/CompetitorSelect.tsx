@@ -2,15 +2,32 @@ import { useEffect, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { api } from '../services/api'
 
+const DEFAULT_OPTIONS = ['Salesforce', 'HubSpot', 'Pipedrive']
+
+// The competitor list is static config — fetch it once per session, not on
+// every page mount. A failed request is forgotten so the next mount retries.
+let competitorsRequest: Promise<string[]> | null = null
+function loadCompetitors(): Promise<string[]> {
+  competitorsRequest ??= api.meta
+    .competitors()
+    .then((r) => r.competitors)
+    .catch((err) => {
+      competitorsRequest = null
+      throw err
+    })
+  return competitorsRequest
+}
+
 export default function CompetitorSelect({ label }: { label?: string }) {
   const { competitor, setCompetitor } = useAppStore()
-  const [options, setOptions] = useState<string[]>(['Salesforce', 'HubSpot', 'Pipedrive'])
+  const [options, setOptions] = useState<string[]>(DEFAULT_OPTIONS)
 
   useEffect(() => {
-    api.meta
-      .competitors()
-      .then((r) => setOptions(r.competitors))
+    let cancelled = false
+    loadCompetitors()
+      .then((names) => { if (!cancelled && names.length > 0) setOptions(names) })
       .catch(() => {/* keep defaults */})
+    return () => { cancelled = true }
   }, [])
 
   return (

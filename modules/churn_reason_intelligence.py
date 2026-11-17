@@ -2,16 +2,15 @@
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import datetime, timezone
 
+from config import PROJECT_ROOT
 from database.db import query_df
-from utils.llm import get_client, retry_with_backoff
+from utils.llm import REPAIR_SYSTEM_PROMPT, call_claude, parse_json_object
 
 logger = logging.getLogger(__name__)
 
-_MODEL     = "claude-sonnet-4-6"
-_CACHE_DIR = Path("outputs/churn")
+_CACHE_DIR = PROJECT_ROOT / "outputs" / "churn"
 _DAYS      = 180  # analyse last 6 months of reviews
 
 BUCKET_LABELS: dict[str, str] = {
@@ -23,8 +22,16 @@ BUCKET_LABELS: dict[str, str] = {
 }
 
 # ── SQL ───────────────────────────────────────────────────────────────────────
+# Windows anchor on the competitor's MAX(date), not on today's date, so the
+# analysis keeps working on fixture/demo data and on DBs that are not refreshed
+# daily (same convention as trigger_alerts and pain_point_radar).
 
-_TOPICS_SQL = """
+_SINCE_EXPR = """date(
+              (SELECT MAX(date) FROM processed_reviews WHERE competitor_name = ?),
+              ?
+          )"""
+
+_TOPICS_SQL = f"""
     SELECT
         topic_label,
         COUNT(*)             AS mention_count,
@@ -32,7 +39,7 @@ _TOPICS_SQL = """
         GROUP_CONCAT(SUBSTR(review_text, 1, 250), '|||') AS sample_texts
     FROM processed_reviews
     WHERE competitor_name = ?
-      AND date >= ?
+      AND date >= {_SINCE_EXPR}
       AND topic_cluster >= 0
       AND topic_label NOT IN ('misc', 'insufficient_data')
     GROUP BY topic_label
@@ -40,11 +47,11 @@ _TOPICS_SQL = """
     LIMIT 15
 """
 
-_TOTAL_SQL = """
+_TOTAL_SQL = f"""
     SELECT COUNT(*) AS total
     FROM processed_reviews
     WHERE competitor_name = ?
-      AND date >= ?
+      AND date >= {_SINCE_EXPR}
 """
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
@@ -98,12 +105,6 @@ TOPIC CLUSTERS (from processed customer reviews):
 Generate the churn reason analysis JSON now.
 """
 
-_REPAIR_SYSTEM_PROMPT = """\
-The following text should be valid JSON but contains a syntax error. \
-Return ONLY the corrected JSON — no explanation, no markdown fences. \
-Must start with {{ and end with }}.
-"""
-
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -130,39 +131,16 @@ def _build_user_prompt(competitor: str, df, total: int) -> str:
     )
 
 
-@retry_with_backoff
 def _call_claude(system: str, user: str) -> str:
-    client   = get_client()
-    response = client.messages.create(
-        model=_MODEL,
-        max_tokens=2048,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-    logger.info(
-        "Churn token usage: %d in + %d out",
-        response.usage.input_tokens,
-        response.usage.output_tokens,
-    )
-    return response.content[0].text
+    return call_claude(system, user, max_tokens=2048, label="Churn")
 
 
 def _parse_analysis(raw: str, competitor: str, total: int) -> dict:
-    text = raw.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text  = "\n".join(lines[1:-1]) if len(lines) > 2 else text
-
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        logger.warning("[%s] Churn JSON parse failed — attempting repair.", competitor)
-        repaired = _call_claude(_REPAIR_SYSTEM_PROMPT, text)
-        try:
-            data = json.loads(repaired.strip())
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Failed to parse churn JSON for {competitor}") from exc
-
+    data = parse_json_object(
+        raw,
+        context="churn",
+        repair=lambda text: _call_claude(REPAIR_SYSTEM_PROMPT, text),
+    )
     data.setdefault("competitor", competitor)
     data.setdefault("generated_at", datetime.now(timezone.utc).isoformat())
     data.setdefault("total_reviews_analysed", total)
@@ -204,12 +182,12 @@ def analyse_competitor(competitor: str) -> dict:
         Dict with keys: competitor, generated_at, total_reviews_analysed, buckets.
         Each bucket: category, label, mention_pct, trend_direction, proof_quotes.
     """
-    since = (datetime.now(timezone.utc) - timedelta(days=_DAYS)).strftime("%Y-%m-%d")
+    params = (competitor, competitor, f"-{_DAYS} days")
 
-    total_row = query_df(_TOTAL_SQL, (competitor, since))
+    total_row = query_df(_TOTAL_SQL, params)
     total     = int(total_row.iloc[0]["total"]) if not total_row.empty else 0
 
-    df = query_df(_TOPICS_SQL, (competitor, since))
+    df = query_df(_TOPICS_SQL, params)
 
     if df.empty or total == 0:
         logger.warning("[%s] No review data for churn analysis — returning stub.", competitor)

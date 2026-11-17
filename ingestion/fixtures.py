@@ -6,6 +6,7 @@ reproducibility.
 """
 
 import random
+import zlib
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -273,7 +274,9 @@ def generate(competitor: CompetitorConfig) -> list[dict[str, Any]]:
     Returns:
         List of review dicts matching the reviews table schema.
     """
-    rng = random.Random(_SEED + hash(competitor["name"]) % 1000)
+    # crc32, not hash(): str hashes are salted per process, which silently broke
+    # the "identical output across runs" guarantee.
+    rng = random.Random(_SEED + zlib.crc32(competitor["name"].encode("utf-8")) % 1000)
     reviews = _generate_reviews_for_competitor(competitor, rng)
     news = _generate_news_articles_for_competitor(competitor, rng)
     return reviews + news

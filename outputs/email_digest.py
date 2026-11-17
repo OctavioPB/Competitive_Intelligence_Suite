@@ -10,7 +10,8 @@ Usage (from APScheduler or CLI):
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+from html import escape
 
 import pandas as pd
 
@@ -100,14 +101,15 @@ def _render_alerts_html(alerts: list) -> str:
         "review_spike": "🔔 Review Spike",
     }
 
+    # Alert evidence quotes scraped headlines / posts — always HTML-escape it.
     html = ""
     for alert in alerts[:5]:
         css = border_class.get(alert.trigger_type, "")
         label = type_label.get(alert.trigger_type, alert.trigger_type)
         html += (
             f'<div class="alert-card {css}">'
-            f'<div class="alert-competitor">{alert.competitor} — {label}</div>'
-            f'<div class="alert-evidence">{alert.evidence_summary}</div>'
+            f'<div class="alert-competitor">{escape(alert.competitor)} — {escape(label)}</div>'
+            f'<div class="alert-evidence">{escape(alert.evidence_summary)}</div>'
             f"</div>"
         )
     return html
@@ -129,9 +131,9 @@ def _render_leads_html(leads_df: pd.DataFrame | None) -> str:
         )
         rows_html += (
             f"<tr>"
-            f"<td>{row.get('username', '—')}</td>"
-            f"<td>{row.get('competitor_name', '—')}</td>"
-            f"<td>{str(row.get('complaint_summary', ''))[:80]}</td>"
+            f"<td>{escape(str(row.get('username', '—')))}</td>"
+            f"<td>{escape(str(row.get('competitor_name', '—')))}</td>"
+            f"<td>{escape(str(row.get('complaint_summary', ''))[:80])}</td>"
             f"<td style='text-align:center;'>{badge}</td>"
             f"</tr>"
         )
@@ -157,7 +159,7 @@ def build_digest_html(alerts: list, leads_df: pd.DataFrame | None) -> str:
         Complete HTML document string.
     """
     return _HTML_TEMPLATE.format(
-        date=datetime.utcnow().strftime("%B %d, %Y"),
+        date=datetime.now(timezone.utc).strftime("%B %d, %Y"),
         alerts_html=_render_alerts_html(alerts),
         leads_html=_render_leads_html(leads_df),
     )
@@ -190,7 +192,7 @@ def send_weekly_digest(
         return False
 
     html_body = build_digest_html(alerts, leads_df)
-    subject = _DIGEST_SUBJECT.format(date=datetime.utcnow().strftime("%Y-%m-%d"))
+    subject = _DIGEST_SUBJECT.format(date=datetime.now(timezone.utc).strftime("%Y-%m-%d"))
 
     message = Mail(
         from_email=_FROM_EMAIL,

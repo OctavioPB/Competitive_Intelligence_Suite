@@ -18,9 +18,10 @@
   --status-red:    #e03448;
   --status-orange: #f07020;
   --status-purple: #7c4dbd;
-
-  /* Semantic status colours — for data signals only, never structural elements */
   --status-blue:   #003366;
+
+  /* Chart strokes drawn on card surfaces — must stay legible in both themes */
+  --chart-line: #003366;
 
   /* Status badge backgrounds (pill / chip surfaces) */
   --status-green-bg:  rgba(39,185,124,0.08);
@@ -60,6 +61,7 @@ html[data-theme="dark"] {
   --dark:       #e2e8f0;
   --mid:        #8b9099;
   --primary-10: rgba(255,255,255,0.07);
+  --chart-line: #99bbdd;
   --shadow-card: 0 1px 4px rgba(0,0,0,0.35);
   --shadow-soft: 0 1px 6px rgba(0,0,0,0.30);
 }

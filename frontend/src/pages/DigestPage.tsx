@@ -1,41 +1,13 @@
 import { useState } from 'react'
-import type React from 'react'
 import { api } from '../services/api'
 import type { DigestReport, CompetitorBrief } from '../services/api'
 import Eyebrow from '../components/Eyebrow'
 import Spinner from '../components/Spinner'
+import Toast from '../components/Toast'
+import { errorMessage, useToast } from '../hooks/useToast'
+import { downloadTextFile } from '../utils/download'
 import KpiCard from '../components/KpiCard'
-
-const heroStyle: React.CSSProperties = {
-  backgroundColor: 'var(--primary)',
-  backgroundImage:
-    'linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)',
-  backgroundSize: '48px 48px',
-  padding: '56px 48px',
-}
-
-const card: React.CSSProperties = {
-  backgroundColor: 'var(--white)',
-  borderRadius:    'var(--radius-md)',
-  boxShadow:       'var(--shadow-card)',
-  border:          '1px solid var(--primary-10)',
-}
-
-const btnGold: React.CSSProperties = {
-  fontFamily:      'var(--fb)',
-  fontSize:        10,
-  fontWeight:      700,
-  letterSpacing:   '2px',
-  textTransform:   'uppercase',
-  backgroundColor: 'var(--gold)',
-  color:           '#fff',
-  border:          'none',
-  borderRadius:    'var(--radius-sm)',
-  padding:         '10px 22px',
-  cursor:          'pointer',
-}
-
-const btnNavy: React.CSSProperties = { ...btnGold, backgroundColor: 'var(--primary)' }
+import { heroStyle, btnGold, btnNavy, card } from '../styles/shared'
 
 function signalColor(signal: string): string {
   if (signal === 'improving') return 'var(--status-green)'
@@ -135,33 +107,30 @@ function buildMarkdown(digest: DigestReport): string {
 export default function DigestPage() {
   const [digest,  setDigest]  = useState<DigestReport | null>(null)
   const [loading, setLoading] = useState(false)
+  const { toast, showToast } = useToast()
 
   function handleGenerate() {
     setLoading(true)
     api.digest.generate()
       .then(setDigest)
-      .catch(() => setDigest(null))
+      .catch((err) => showToast(errorMessage(err, 'Digest generation failed. Check API key and backend.'), 'error'))
       .finally(() => setLoading(false))
   }
 
   function handleLoadLatest() {
     setLoading(true)
     api.digest.latest()
-      .then((r) => { if (r) setDigest(r) })
-      .catch(() => {/* silently skip */})
+      .then((r) => {
+        if (r) setDigest(r)
+        else showToast('No stored digest yet. Click Generate Digest to create one.', 'warning')
+      })
+      .catch((err) => showToast(errorMessage(err, 'Failed to load the latest digest.'), 'error'))
       .finally(() => setLoading(false))
   }
 
   function handleDownload() {
     if (!digest) return
-    const md   = buildMarkdown(digest)
-    const blob = new Blob([md], { type: 'text/markdown' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href     = url
-    a.download = `digest_${digest.generated_at.slice(0, 10)}.md`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadTextFile(`digest_${digest.generated_at.slice(0, 10)}.md`, buildMarkdown(digest), 'text/markdown')
   }
 
   const competitorCount = digest?.per_competitor.length ?? 0
@@ -178,7 +147,7 @@ export default function DigestPage() {
             <em style={{ fontStyle: 'italic', color: 'var(--gold-light)' }}>brief</em>
           </h1>
           <p style={{ fontFamily: 'var(--fb)', fontSize: 13, color: 'rgba(255,255,255,0.45)', maxWidth: 560 }}>
-            Claude synthesises all six intelligence modules into one executive-ready narrative — what changed, what it means, and what your team should do this week.
+            Claude synthesises sentiment shifts, pain points, alerts and prospect signals into one executive-ready narrative — what changed, what it means, and what your team should do this week.
           </p>
         </div>
       </div>
@@ -212,6 +181,8 @@ export default function DigestPage() {
               </span>
             )}
           </div>
+
+          {toast && <Toast message={toast.msg} type={toast.type} />}
 
           {loading && (
             <div>

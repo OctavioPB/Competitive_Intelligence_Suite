@@ -1,14 +1,11 @@
 """M09 — Outreach Composer: generate personalised outreach from competitive intelligence."""
 
-import json
 import logging
 from datetime import datetime, timezone
 
-from utils.llm import get_client, retry_with_backoff
+from utils.llm import REPAIR_SYSTEM_PROMPT, call_claude, parse_json_object
 
 logger = logging.getLogger(__name__)
-
-_MODEL = "claude-sonnet-4-6"
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
 
@@ -60,11 +57,6 @@ COMPETITIVE INTELLIGENCE ABOUT {competitor}:
 Write the three outreach variants now.
 """
 
-_REPAIR_SYSTEM_PROMPT = """\
-The following text should be valid JSON but has a syntax error. \
-Return ONLY the corrected JSON — no explanation, no markdown fences.
-"""
-
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
@@ -100,39 +92,16 @@ def _get_pitch(competitor: str) -> str:
     return "(no cached battlecard — use the competitor's top pain points to frame your pitch)"
 
 
-@retry_with_backoff
 def _call_claude(system: str, user: str) -> str:
-    client   = get_client()
-    response = client.messages.create(
-        model=_MODEL,
-        max_tokens=1024,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-    logger.info(
-        "Outreach token usage: %d in + %d out",
-        response.usage.input_tokens,
-        response.usage.output_tokens,
-    )
-    return response.content[0].text
+    return call_claude(system, user, max_tokens=1024, label="Outreach")
 
 
 def _parse_bundle(raw: str, competitor: str, username: str) -> dict:
-    text = raw.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text  = "\n".join(lines[1:-1]) if len(lines) > 2 else text
-
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        logger.warning("[%s] Outreach JSON parse failed — attempting repair.", competitor)
-        repaired = _call_claude(_REPAIR_SYSTEM_PROMPT, text)
-        try:
-            data = json.loads(repaired.strip())
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"Failed to parse outreach JSON for {competitor}") from exc
-
+    data = parse_json_object(
+        raw,
+        context="outreach",
+        repair=lambda text: _call_claude(REPAIR_SYSTEM_PROMPT, text),
+    )
     data.setdefault("competitor", competitor)
     data.setdefault("username",   username)
     data.setdefault("generated_at", datetime.now(timezone.utc).isoformat())
@@ -169,6 +138,5 @@ def compose_outreach(competitor: str, complaint: str, username: str = "Prospect"
     )
 
     logger.info("[%s] Composing outreach for %s ...", competitor, username)
-    raw    = _call_claude(_SYSTEM_PROMPT, user_prompt)
-    bundle = _parse_bundle(raw, competitor, username)
-    return bundle
+    raw = _call_claude(_SYSTEM_PROMPT, user_prompt)
+    return _parse_bundle(raw, competitor, username)

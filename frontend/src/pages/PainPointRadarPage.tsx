@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import type React from 'react'
 import { useAppStore } from '../stores/appStore'
 import { api } from '../services/api'
 import type { PainPoint } from '../services/api'
@@ -8,14 +7,7 @@ import Spinner from '../components/Spinner'
 import KpiCard from '../components/KpiCard'
 import CompetitorSelect from '../components/CompetitorSelect'
 import StatusBadge from '../components/StatusBadge'
-
-const heroStyle: React.CSSProperties = {
-  backgroundColor: 'var(--primary)',
-  backgroundImage:
-    'linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)',
-  backgroundSize: '48px 48px',
-  padding: '56px 48px',
-}
+import { heroStyle, thStyle } from '../styles/shared'
 
 const BAR_COLORS = ['#003366', '#1a4d80', '#336699', '#99bbdd', '#c8982a']
 
@@ -62,7 +54,7 @@ function PainBarChart({ points }: { points: PainPoint[] }) {
               x={labelW - 10}
               y={y + 14}
               textAnchor="end"
-              fill="#6b7280"
+              style={{ fill: 'var(--mid)' }}
               fontSize={10}
               fontFamily="'Plus Jakarta Sans', sans-serif"
             >
@@ -79,7 +71,7 @@ function PainBarChart({ points }: { points: PainPoint[] }) {
             <text
               x={labelW + barW + 7}
               y={y + 14}
-              fill="#1c1c2e"
+              style={{ fill: 'var(--dark)' }}
               fontSize={10}
               fontFamily="'Plus Jakarta Sans', sans-serif"
             >
@@ -98,12 +90,15 @@ export default function PainPointRadarPage() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
+    // Guard against out-of-order responses when the selection changes quickly.
+    let cancelled = false
     setLoading(true)
     api.painPoints
       .get(competitor, 10)
-      .then((r) => setPoints(r.points))
-      .catch(() => setPoints([]))
-      .finally(() => setLoading(false))
+      .then((r) => { if (!cancelled) setPoints(r.points) })
+      .catch(() => { if (!cancelled) setPoints([]) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [competitor])
 
   const totalMentions = points.reduce((s, p) => s + p.mention_count, 0)
@@ -112,17 +107,6 @@ export default function PainPointRadarPage() {
       ? points.reduce((s, p) => s + p.avg_severity, 0) / points.length
       : 0
   const risingCount = points.filter((p) => p.trend_direction === 'rising').length
-
-  const thStyle: React.CSSProperties = {
-    fontFamily: 'var(--fb)',
-    fontSize: 10,
-    fontWeight: 600,
-    letterSpacing: '2px',
-    textTransform: 'uppercase',
-    color: '#fff',
-    padding: '10px 14px',
-    textAlign: 'left',
-  }
 
   return (
     <div>

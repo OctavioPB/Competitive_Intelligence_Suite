@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import TypedDict
 
 
@@ -51,3 +52,7 @@ SUBREDDITS: list[str] = [
 
 # Derived — use this instead of iterating COMPETITORS when only names are needed
 COMPETITOR_NAMES: list[str] = [c["name"] for c in COMPETITORS]
+
+# Absolute repo root — anchor for the DB file, caches and model artefacts so the
+# app behaves the same regardless of the working directory it is launched from.
+PROJECT_ROOT: Path = Path(__file__).resolve().parent

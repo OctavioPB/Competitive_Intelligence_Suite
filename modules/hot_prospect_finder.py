@@ -1,8 +1,9 @@
 """M06 — Hot Prospect Finder: surface Reddit users actively switching competitors."""
 
 import logging
+import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pandas as pd
 
@@ -44,8 +45,6 @@ def scan_reddit(competitor_list: list[str], subreddits: list[str]) -> pd.DataFra
         DataFrame with columns: source, post_id, username, post_text, post_url,
         created_at, competitor_name, upvotes, num_comments.
     """
-    import os
-
     import praw
 
     client_id = os.getenv("REDDIT_CLIENT_ID", "")
@@ -84,8 +83,8 @@ def scan_reddit(competitor_list: list[str], subreddits: list[str]) -> pd.DataFra
                                 :1000
                             ],
                             "post_url": f"https://reddit.com{submission.permalink}",
-                            "created_at": datetime.utcfromtimestamp(
-                                submission.created_utc
+                            "created_at": datetime.fromtimestamp(
+                                submission.created_utc, tz=timezone.utc
                             ).strftime("%Y-%m-%d"),
                             "competitor_name": competitor,
                             "upvotes": submission.score,
@@ -130,7 +129,7 @@ def score_urgency(post: dict) -> float:
         score += 0.4
 
     # +0.3 / +0.15: negative sentiment
-    sentiment = float(post.get("sentiment_score", 0.0))
+    sentiment = float(post.get("sentiment_score") or 0.0)
     if sentiment < -0.2:
         score += 0.30
     elif sentiment < 0.0:
@@ -139,8 +138,8 @@ def score_urgency(post: dict) -> float:
     # +0.2 / +0.1: recency
     created_str = str(post.get("created_at", ""))[:10]
     try:
-        created = datetime.strptime(created_str, "%Y-%m-%d")
-        days_ago = (datetime.utcnow() - created).days
+        created = datetime.strptime(created_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        days_ago = (datetime.now(timezone.utc) - created).days
         if days_ago <= 7:
             score += 0.20
         elif days_ago <= 30:
@@ -184,7 +183,11 @@ def enrich_lead(lead: dict) -> dict:
         for s in text.replace("!", ".").replace("?", ".").split(".")
         if s.strip() and len(s.strip()) > 10
     ]
-    complaint_summary = (sentences[0][:120] + "…") if sentences else text[:120]
+    if sentences:
+        first = sentences[0]
+        complaint_summary = first[:120] + ("…" if len(first) > 120 else "")
+    else:
+        complaint_summary = text[:120]
 
     # company_signals: capitalised tokens that look like company/product names
     _STOP = {

@@ -3,19 +3,17 @@
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pandas as pd
 
-from config import COMPETITORS, OWN_FEATURES
+from config import COMPETITORS, OWN_FEATURES, PROJECT_ROOT
 from modules.feature_wish_miner import extract_wishes, flag_own_features
 from modules.pain_point_radar import get_pain_points
-from utils.llm import get_client, retry_with_backoff
+from utils.llm import REPAIR_SYSTEM_PROMPT, call_claude, parse_json_object
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "claude-sonnet-4-6"
-_BATTLECARD_DIR = Path("outputs/battlecards")
+_BATTLECARD_DIR = PROJECT_ROOT / "outputs" / "battlecards"
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
 
@@ -53,12 +51,6 @@ Rules:
 - Counters must be specific and actionable — avoid phrases like "we do it better"
 - proof_quote must feel authentic, as if written by an actual frustrated customer
 - recommended_pitch leads with the competitor's biggest verifiable pain point
-"""
-
-_REPAIR_SYSTEM_PROMPT = """\
-The following text should be valid JSON but has a syntax error. \
-Return ONLY the corrected JSON — no explanation, no markdown fences. \
-The response must start with { and end with }.
 """
 
 _USER_PROMPT_TEMPLATE = """\
@@ -110,7 +102,7 @@ def _build_user_prompt(
     if not pain_df.empty:
         pain_lines = "\n".join(
             f"  {i + 1}. {row['topic_label']} — {row['mention_count']} mentions, "
-            f"severity {row['avg_severity']:.2f} ({row['trend_direction']} {row['trend_icon']})"
+            f"severity {row['avg_severity']:.2f} ({row['trend_direction']})"
             for i, (_, row) in enumerate(pain_df.head(5).iterrows())
         )
     else:
@@ -141,49 +133,21 @@ def _build_user_prompt(
     )
 
 
-@retry_with_backoff
 def _call_claude(system: str, user: str) -> str:
-    """Make a single Claude API call and return the raw text response.
+    """Single Claude call (retried on transient errors); returns the raw text."""
+    return call_claude(system, user, max_tokens=2048, label="Battlecard")
 
-    Logs token usage and warns when the total exceeds 2,000 tokens.
-    Wrapped with @retry_with_backoff for transient API errors.
-    """
-    client = get_client()
-    response = client.messages.create(
-        model=_MODEL,
-        max_tokens=2048,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-    in_tok = response.usage.input_tokens
-    out_tok = response.usage.output_tokens
-    total = in_tok + out_tok
-    logger.info("Token usage: %d in + %d out = %d total", in_tok, out_tok, total)
-    if total > 2000:
-        logger.warning(
-            "Token count %d exceeds 2,000 — consider trimming the input prompt.", total
-        )
-    return response.content[0].text
+
+def _slug(competitor: str) -> str:
+    return competitor.lower().replace(" ", "_")
 
 
 def _parse_battlecard(raw: str, competitor: str) -> dict:
-    text = raw.strip()
-    # Strip markdown code fences that some models emit despite instructions
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text = "\n".join(lines[1:-1]) if len(lines) > 2 else text
-
-    try:
-        card = json.loads(text)
-    except json.JSONDecodeError:
-        logger.warning("[%s] Initial JSON parse failed — attempting repair.", competitor)
-        repaired_raw = _call_claude(_REPAIR_SYSTEM_PROMPT, text)
-        try:
-            card = json.loads(repaired_raw.strip())
-        except json.JSONDecodeError as exc:
-            logger.error("[%s] JSON repair failed.\nRaw: %.500s", competitor, raw)
-            raise ValueError(f"Failed to parse battlecard JSON for {competitor}") from exc
-
+    card = parse_json_object(
+        raw,
+        context="battlecard",
+        repair=lambda text: _call_claude(REPAIR_SYSTEM_PROMPT, text),
+    )
     card.setdefault("competitor", competitor)
     card.setdefault("generated_at", datetime.now(timezone.utc).isoformat())
     card.setdefault("objections", [])
@@ -194,7 +158,7 @@ def _parse_battlecard(raw: str, competitor: str) -> dict:
 
 def _save_battlecard(card: dict, competitor: str) -> None:
     _BATTLECARD_DIR.mkdir(parents=True, exist_ok=True)
-    slug = competitor.lower().replace(" ", "_")
+    slug = _slug(competitor)
 
     payload = json.dumps(card, indent=2, ensure_ascii=False)
 
@@ -278,8 +242,7 @@ def load_cached_battlecard(competitor: str) -> dict | None:
     Returns:
         Battlecard dict or None.
     """
-    slug = competitor.lower().replace(" ", "_")
-    path = _BATTLECARD_DIR / f"{slug}_latest.json"
+    path = _BATTLECARD_DIR / f"{_slug(competitor)}_latest.json"
     if not path.exists():
         return None
     try:
@@ -293,7 +256,7 @@ def generate_battlecard(competitor: str) -> dict:
     """Generate a sales battlecard for a competitor using the Claude API.
 
     Pulls top-5 pain points from M01 and top-5 covered feature gaps from M03,
-    constructs a structured prompt, calls claude-sonnet-4-6, and persists the
+    constructs a structured prompt, calls Claude, and persists the
     result to outputs/battlecards/.
 
     Args:

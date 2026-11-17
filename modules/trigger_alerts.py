@@ -3,19 +3,18 @@
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pandas as pd
 
 from database.db import query_df
-from utils.llm import get_client, retry_with_backoff
+from utils.llm import call_claude
 
 logger = logging.getLogger(__name__)
 
 _NEGATIVE_KEYWORDS = ["outage", "lawsuit", "layoffs", "breach", "downtime", "fired", "hack"]
 _SENTIMENT_DROP_THRESHOLD = -0.5
 _REVIEW_SPIKE_MULTIPLIER = 2.0
-_MODEL = "claude-sonnet-4-6"
 
 # SQL anchors on MAX(date) in the dataset so fixture data works correctly.
 _SENTIMENT_SQL = """
@@ -98,7 +97,7 @@ class Alert:
     trigger_type: str       # "sentiment_drop" | "negative_news" | "review_spike"
     competitor: str
     evidence_summary: str
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     outreach_draft: str = ""
 
 
@@ -250,9 +249,7 @@ def check_triggers(competitor_list: list[str]) -> list[Alert]:
     return alerts
 
 
-@retry_with_backoff
 def _call_claude_outreach(alert: Alert) -> str:
-    client = get_client()
     prompt = (
         f"Write a brief, warm B2B sales outreach email body (3–4 sentences max) "
         f"for this situation:\n\n"
@@ -262,12 +259,7 @@ def _call_claude_outreach(alert: Alert) -> str:
         f"Be empathetic, reference the specific situation, and include a soft call to action. "
         f"Return only the email body — no subject line, no greeting salutation."
     )
-    response = client.messages.create(
-        model=_MODEL,
-        max_tokens=300,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return response.content[0].text
+    return call_claude(None, prompt, max_tokens=300, label="Alert outreach")
 
 
 def generate_outreach(alert: Alert, llm: bool = True) -> str:

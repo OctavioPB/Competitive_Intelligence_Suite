@@ -2,12 +2,16 @@
 
 import logging
 from functools import lru_cache
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _SPACY_MODEL = "en_core_web_sm"
 _ENTITY_TYPES = frozenset({"ORG", "PRODUCT", "GPE", "PERSON"})
+_MAX_CHARS = 10_000  # keep single documents well under spaCy's max_length
+
+# Only tok2vec + ner are needed for entities; skipping the rest roughly halves
+# per-document time.
+_UNUSED_COMPONENTS = ["tagger", "parser", "attribute_ruler", "lemmatizer"]
 
 
 @lru_cache(maxsize=1)
@@ -15,7 +19,24 @@ def _load_nlp():
     """Lazy-load spaCy model once per process."""
     import spacy
 
-    return spacy.load(_SPACY_MODEL)
+    return spacy.load(_SPACY_MODEL, exclude=_UNUSED_COMPONENTS)
+
+
+def _doc_entities(doc) -> list[dict[str, str]]:
+    """Return relevant entities of a parsed doc, deduplicated by (text.lower(), label)."""
+    seen: set[tuple[str, str]] = set()
+    entities: list[dict[str, str]] = []
+
+    for ent in doc.ents:
+        if ent.label_ not in _ENTITY_TYPES:
+            continue
+        key = (ent.text.lower(), ent.label_)
+        if key in seen:
+            continue
+        seen.add(key)
+        entities.append({"text": ent.text, "label": ent.label_})
+
+    return entities
 
 
 def extract_entities(text: str) -> list[dict[str, str]]:
@@ -32,22 +53,7 @@ def extract_entities(text: str) -> list[dict[str, str]]:
         Deduplicated by (text.lower(), label) pair.
         Example: [{"text": "Salesforce", "label": "ORG"}]
     """
-    nlp = _load_nlp()
-    doc = nlp(text[:10_000])  # spaCy default limit protection
-
-    seen: set[tuple[str, str]] = set()
-    entities: list[dict[str, str]] = []
-
-    for ent in doc.ents:
-        if ent.label_ not in _ENTITY_TYPES:
-            continue
-        key = (ent.text.lower(), ent.label_)
-        if key in seen:
-            continue
-        seen.add(key)
-        entities.append({"text": ent.text, "label": ent.label_})
-
-    return entities
+    return _doc_entities(_load_nlp()(text[:_MAX_CHARS]))
 
 
 def extract_entities_batch(texts: list[str]) -> list[list[dict[str, str]]]:
@@ -59,20 +65,5 @@ def extract_entities_batch(texts: list[str]) -> list[list[dict[str, str]]]:
     Returns:
         List of entity lists, one per input text.
     """
-    nlp = _load_nlp()
-    results: list[list[dict[str, str]]] = []
-
-    for doc in nlp.pipe(texts, batch_size=64):
-        seen: set[tuple[str, str]] = set()
-        entities: list[dict[str, str]] = []
-        for ent in doc.ents:
-            if ent.label_ not in _ENTITY_TYPES:
-                continue
-            key = (ent.text.lower(), ent.label_)
-            if key in seen:
-                continue
-            seen.add(key)
-            entities.append({"text": ent.text, "label": ent.label_})
-        results.append(entities)
-
-    return results
+    docs = _load_nlp().pipe((t[:_MAX_CHARS] for t in texts), batch_size=64)
+    return [_doc_entities(doc) for doc in docs]

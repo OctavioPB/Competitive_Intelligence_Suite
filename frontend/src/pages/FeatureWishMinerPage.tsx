@@ -1,5 +1,4 @@
-﻿import { useEffect, useState } from 'react'
-import type React from 'react'
+import { useEffect, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { api } from '../services/api'
 import type { WishCluster } from '../services/api'
@@ -7,25 +6,7 @@ import Eyebrow from '../components/Eyebrow'
 import Spinner from '../components/Spinner'
 import KpiCard from '../components/KpiCard'
 import CompetitorSelect from '../components/CompetitorSelect'
-
-const heroStyle: React.CSSProperties = {
-  backgroundColor: 'var(--primary)',
-  backgroundImage:
-    'linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)',
-  backgroundSize: '48px 48px',
-  padding: '56px 48px',
-}
-
-const thStyle: React.CSSProperties = {
-  fontFamily: 'var(--fb)',
-  fontSize: 10,
-  fontWeight: 600,
-  letterSpacing: '2px',
-  textTransform: 'uppercase',
-  color: '#fff',
-  padding: '10px 14px',
-  textAlign: 'left',
-}
+import { heroStyle, thStyle } from '../styles/shared'
 
 export default function FeatureWishMinerPage() {
   const { competitor } = useAppStore()
@@ -34,12 +15,15 @@ export default function FeatureWishMinerPage() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
+    // Guard against out-of-order responses when the selection changes quickly.
+    let cancelled = false
     setLoading(true)
     api.wishes
       .get(competitor, gapsOnly)
-      .then((r) => setClusters(r.clusters))
-      .catch(() => setClusters([]))
-      .finally(() => setLoading(false))
+      .then((r) => { if (!cancelled) setClusters(r.clusters) })
+      .catch(() => { if (!cancelled) setClusters([]) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [competitor, gapsOnly])
 
   const covered = clusters.filter((c) => c.your_product_has_it).length
@@ -48,7 +32,7 @@ export default function FeatureWishMinerPage() {
 
   return (
     <div>
-      {/* â”€â”€ Hero â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <div style={heroStyle}>
         <div style={{ maxWidth: 'var(--max-width-dashboard)', margin: '0 auto' }}>
           <Eyebrow light>Feature Wish Miner</Eyebrow>
@@ -75,12 +59,12 @@ export default function FeatureWishMinerPage() {
             }}
           >
             Cluster competitor feature requests and automatically flag which ones
-            your product already solves â€” your unfair advantage, quantified.
+            your product already solves — your unfair advantage, quantified.
           </p>
         </div>
       </div>
 
-      {/* â”€â”€ Body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Body ─────────────────────────────────────────────────────────── */}
       <div style={{ backgroundColor: 'var(--light)', minHeight: '60vh' }}>
         <div
           style={{
@@ -236,7 +220,7 @@ export default function FeatureWishMinerPage() {
                                   lineHeight: 1.5,
                                 }}
                               >
-                                "{q.slice(0, 90)}{q.length > 90 ? 'â€¦' : ''}"
+                                "{q.slice(0, 90)}{q.length > 90 ? '…' : ''}"
                               </div>
                             ))}
                           </td>

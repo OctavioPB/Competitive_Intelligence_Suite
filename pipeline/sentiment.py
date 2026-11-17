@@ -9,12 +9,13 @@ import numpy as np
 import pandas as pd
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
+from utils.embeddings import get_embedding_model
+
 logger = logging.getLogger(__name__)
 
 _VADER = SentimentIntensityAnalyzer()
 
 # Transformer is optional — only loaded when sentence_transformers is available
-_ST_MODEL_NAME = "all-MiniLM-L6-v2"
 _POSITIVE_ANCHOR = "This product is excellent and I highly recommend it."
 _NEGATIVE_ANCHOR = "This product is terrible and a complete waste of money."
 
@@ -37,35 +38,64 @@ _WISH_RE = re.compile("|".join(_WISH_PATTERNS))
 
 @lru_cache(maxsize=1)
 def _load_transformer():
-    """Lazy-load sentence-transformer model. Returns None if package unavailable."""
+    """Lazy-load the shared model plus anchor embeddings. (None, None) if unavailable."""
     try:
-        from sentence_transformers import SentenceTransformer
-
-        model = SentenceTransformer(_ST_MODEL_NAME)
-        anchors = model.encode([_POSITIVE_ANCHOR, _NEGATIVE_ANCHOR], normalize_embeddings=True)
-        return model, anchors
+        model = get_embedding_model()
     except ImportError:
         logger.warning(
             "sentence_transformers not installed — using VADER-only sentiment scoring."
         )
         return None, None
 
+    anchors = model.encode([_POSITIVE_ANCHOR, _NEGATIVE_ANCHOR], normalize_embeddings=True)
+    return model, anchors
 
-def _transformer_score(text: str) -> float | None:
-    """Return a transformer-based sentiment score in [-1, 1], or None on failure."""
+
+def _transformer_scores(
+    texts: list[str],
+    embeddings: np.ndarray | None = None,
+) -> np.ndarray | None:
+    """Return transformer sentiment scores in [-1, 1] for all texts, or None on failure.
+
+    Args:
+        texts: Texts to score.
+        embeddings: Optional pre-computed embeddings for ``texts`` (any norm) —
+            lets the pipeline embed each review once and share the result.
+    """
     model, anchors = _load_transformer()
     if model is None:
         return None
 
     try:
-        emb = model.encode([text], normalize_embeddings=True)[0]
-        pos_sim = float(np.dot(emb, anchors[0]))
-        neg_sim = float(np.dot(emb, anchors[1]))
-        # Maps to [-1, 1]: positive anchor similarity dominates → positive score
-        return float(np.clip(pos_sim - neg_sim, -1.0, 1.0))
+        if embeddings is None:
+            embs = model.encode(texts, normalize_embeddings=True)
+        else:
+            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+            embs = embeddings / np.where(norms == 0, 1.0, norms)
+        # Positive-anchor similarity minus negative-anchor similarity → [-1, 1]
+        return np.clip(embs @ anchors[0] - embs @ anchors[1], -1.0, 1.0)
     except Exception as exc:  # noqa: BLE001
         logger.debug("Transformer scoring failed: %s", exc)
         return None
+
+
+def _transformer_score(text: str) -> float | None:
+    """Return a transformer-based sentiment score in [-1, 1], or None on failure."""
+    scores = _transformer_scores([text])
+    return None if scores is None else float(scores[0])
+
+
+def _blend(vader_score: float, t_score: float | None) -> dict[str, Any]:
+    combined = (
+        _VADER_WEIGHT * vader_score + _TRANSFORMER_WEIGHT * t_score
+        if t_score is not None
+        else vader_score
+    )
+    return {
+        "vader_score": vader_score,
+        "transformer_score": t_score,
+        "sentiment_score": float(np.clip(combined, -1.0, 1.0)),
+    }
 
 
 def score_sentiment(text: str) -> dict[str, Any]:
@@ -84,18 +114,36 @@ def score_sentiment(text: str) -> dict[str, Any]:
         - sentiment_score (float, [-1, 1]) — weighted blend
     """
     vader_score = float(_VADER.polarity_scores(text)["compound"])
-    t_score = _transformer_score(text)
+    return _blend(vader_score, _transformer_score(text))
 
-    if t_score is not None:
-        combined = _VADER_WEIGHT * vader_score + _TRANSFORMER_WEIGHT * t_score
-    else:
-        combined = vader_score
 
-    return {
-        "vader_score": vader_score,
-        "transformer_score": t_score,
-        "sentiment_score": float(np.clip(combined, -1.0, 1.0)),
-    }
+def score_sentiment_batch(
+    texts: list[str],
+    embeddings: np.ndarray | None = None,
+) -> list[dict[str, Any]]:
+    """Score many texts at once — same output per item as score_sentiment().
+
+    Encodes all texts in a single batched forward pass (or reuses
+    ``embeddings`` when supplied), which is far faster than one call per text.
+
+    Args:
+        texts: Review texts.
+        embeddings: Optional pre-computed sentence embeddings aligned with texts.
+
+    Returns:
+        List of score dicts, one per input text.
+    """
+    if not texts:
+        return []
+
+    t_scores = _transformer_scores(texts, embeddings)
+    return [
+        _blend(
+            float(_VADER.polarity_scores(text)["compound"]),
+            None if t_scores is None else float(t_scores[i]),
+        )
+        for i, text in enumerate(texts)
+    ]
 
 
 def compute_sentiment_delta(
@@ -111,27 +159,35 @@ def compute_sentiment_delta(
 
     Returns:
         Series of sentiment_delta values aligned with scores_df index.
-        Reviews with no prior window data get delta = 0.0.
+        Reviews with no prior window data — or with a missing/unparseable
+        date — get delta = 0.0.
     """
-    df = scores_df.copy()
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df = df.sort_values("date")
+    dates = pd.to_datetime(scores_df["date"], errors="coerce")
+    scores = scores_df["sentiment_score"].astype(float)
 
-    # Rolling mean using a time-based window (requires DatetimeIndex)
-    df = df.set_index("date")
+    # Rolling time windows need a sorted DatetimeIndex without NaT. Carry the
+    # original position alongside so results map back exactly, even when dates
+    # tie or the input index has duplicates.
+    valid = dates.notna().to_numpy()
+    work = pd.DataFrame(
+        {
+            "pos": np.flatnonzero(valid),
+            "score": scores.to_numpy()[valid],
+        },
+        index=pd.DatetimeIndex(dates.to_numpy()[valid]),
+    ).sort_index(kind="stable")
+
     rolling_avg = (
-        df["sentiment_score"]
+        work["score"]
         .rolling(window=f"{window_days}D", min_periods=1)
         .mean()
         .shift(1)   # shift so each row sees prior-window avg, not including itself
         .fillna(0.0)
     )
-    df["sentiment_delta"] = df["sentiment_score"] - rolling_avg
 
-    # Restore original index order
-    df = df.reset_index()
-    df = df.set_index(scores_df.sort_values("date").index)
-    return df["sentiment_delta"].reindex(scores_df.index).fillna(0.0)
+    deltas = np.zeros(len(scores_df), dtype=float)
+    deltas[work["pos"].to_numpy()] = (work["score"] - rolling_avg).to_numpy()
+    return pd.Series(deltas, index=scores_df.index, name="sentiment_delta")
 
 
 def extract_wish_phrases(text: str) -> list[str]:

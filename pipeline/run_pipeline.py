@@ -14,8 +14,12 @@ import pandas as pd
 from config import COMPETITORS, CompetitorConfig
 from database.db import executemany, query_df
 from pipeline.entity_extractor import extract_entities_batch
-from pipeline.sentiment import compute_sentiment_delta, extract_wish_phrases, score_sentiment
-from pipeline.topic_model import assign_topics, train_topics
+from pipeline.sentiment import (
+    compute_sentiment_delta,
+    extract_wish_phrases,
+    score_sentiment_batch,
+)
+from pipeline.topic_model import assign_topics, embed_texts, train_topics
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +30,7 @@ _SELECT_REVIEWS = """
     ORDER BY date ASC
 """
 
-# INSERT OR REPLACE relies on UNIQUE(review_id) constraint in schema.sql
+# Upsert relies on the UNIQUE(review_id) constraint in schema.sql
 _UPSERT_SQL = """
     INSERT INTO processed_reviews
         (review_id, source, competitor_name, review_text, rating, date,
@@ -65,18 +69,25 @@ def run_for_competitor(competitor: CompetitorConfig) -> int:
     texts: list[str] = df["review_text"].tolist()
     logger.info("[%s] Processing %d reviews ...", name, len(df))
 
+    # ── Embed once, reuse for topic training, topic inference and sentiment ─
+    try:
+        embeddings = embed_texts(texts)
+    except ImportError:
+        embeddings = None  # sentence_transformers absent — stages fall back on their own
+
     # ── Batch: topic modeling ──────────────────────────────────────────────
-    train_topics(name, texts)
-    topic_assignments = assign_topics(texts, name)
+    train_topics(name, texts, embeddings)
+    topic_assignments = assign_topics(texts, name, embeddings)
 
     # ── Batch: NER entity extraction ──────────────────────────────────────
     logger.info("[%s] Extracting entities ...", name)
     all_entities = extract_entities_batch(texts)
 
-    # ── Per-review: sentiment scoring ──────────────────────────────────────
+    # ── Batch: sentiment scoring ───────────────────────────────────────────
     logger.info("[%s] Scoring sentiment ...", name)
-    sentiment_results = [score_sentiment(t) for t in texts]
-    sentiment_scores = [r["sentiment_score"] for r in sentiment_results]
+    sentiment_scores = [
+        r["sentiment_score"] for r in score_sentiment_batch(texts, embeddings)
+    ]
 
     # ── Per-review: wish phrase extraction ────────────────────────────────
     wish_results = [extract_wish_phrases(t) for t in texts]
@@ -89,24 +100,30 @@ def run_for_competitor(competitor: CompetitorConfig) -> int:
     deltas = compute_sentiment_delta(scores_df)
 
     # ── Write to processed_reviews (idempotent upsert) ────────────────────
-    rows = []
-    for i, (_, rev) in enumerate(df.iterrows()):
-        rows.append(
-            (
-                int(rev["id"]),
-                rev["source"],
-                rev["competitor_name"],
-                rev["review_text"],
-                rev["rating"],
-                rev["date"],
-                topic_assignments[i]["topic_cluster"],
-                topic_assignments[i]["topic_label"],
-                sentiment_scores[i],
-                float(deltas.iloc[i]),
-                json.dumps(all_entities[i]),
-                json.dumps(wish_results[i]),
-            )
+    rows = [
+        (
+            int(rev.id),
+            rev.source,
+            rev.competitor_name,
+            rev.review_text,
+            None if pd.isna(rev.rating) else float(rev.rating),
+            rev.date,
+            topic["topic_cluster"],
+            topic["topic_label"],
+            score,
+            float(delta),
+            json.dumps(entities),
+            json.dumps(wishes),
         )
+        for rev, topic, score, delta, entities, wishes in zip(
+            df.itertuples(index=False),
+            topic_assignments,
+            sentiment_scores,
+            deltas,
+            all_entities,
+            wish_results,
+        )
+    ]
 
     executemany(_UPSERT_SQL, rows)
     logger.info("[%s] Wrote %d processed_reviews rows.", name, len(rows))

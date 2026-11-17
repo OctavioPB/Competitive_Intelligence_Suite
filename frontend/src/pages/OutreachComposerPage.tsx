@@ -1,42 +1,13 @@
 import { useEffect, useState } from 'react'
-import type React from 'react'
 import { api } from '../services/api'
 import type { OutreachBundle } from '../services/api'
 import Eyebrow from '../components/Eyebrow'
 import Spinner from '../components/Spinner'
+import Toast from '../components/Toast'
+import { errorMessage, useToast } from '../hooks/useToast'
 import CompetitorSelect from '../components/CompetitorSelect'
 import { useAppStore } from '../stores/appStore'
-
-const heroStyle: React.CSSProperties = {
-  backgroundColor: 'var(--primary)',
-  backgroundImage:
-    'linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)',
-  backgroundSize: '48px 48px',
-  padding: '56px 48px',
-}
-
-const card: React.CSSProperties = {
-  backgroundColor: 'var(--white)',
-  borderRadius:    'var(--radius-md)',
-  boxShadow:       'var(--shadow-card)',
-  border:          '1px solid var(--primary-10)',
-}
-
-const btnGold: React.CSSProperties = {
-  fontFamily:      'var(--fb)',
-  fontSize:        10,
-  fontWeight:      700,
-  letterSpacing:   '2px',
-  textTransform:   'uppercase',
-  backgroundColor: 'var(--gold)',
-  color:           '#fff',
-  border:          'none',
-  borderRadius:    'var(--radius-sm)',
-  padding:         '10px 22px',
-  cursor:          'pointer',
-}
-
-const btnNavy: React.CSSProperties = { ...btnGold, backgroundColor: 'var(--primary)' }
+import { heroStyle, btnGold, card } from '../styles/shared'
 
 const TABS = ['Email', 'LinkedIn', 'Call'] as const
 type Tab = (typeof TABS)[number]
@@ -44,10 +15,13 @@ type Tab = (typeof TABS)[number]
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   function handleCopy() {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      })
+      .catch(() => {/* clipboard blocked (permissions / insecure context) — leave label unchanged */})
   }
   return (
     <button
@@ -80,6 +54,7 @@ export default function OutreachComposerPage() {
   const [bundle,    setBundle]    = useState<OutreachBundle | null>(null)
   const [loading,   setLoading]   = useState(false)
   const [activeTab, setActiveTab] = useState<Tab>('Email')
+  const { toast, showToast } = useToast()
 
   // Apply prefill from HotProspectPage "Compose Outreach" button
   useEffect(() => {
@@ -96,7 +71,7 @@ export default function OutreachComposerPage() {
     setBundle(null)
     api.outreach.compose(competitor, complaint, username || 'Prospect')
       .then(setBundle)
-      .catch(() => setBundle(null))
+      .catch((err) => showToast(errorMessage(err, 'Could not compose outreach. Check API key and backend.'), 'error'))
       .finally(() => setLoading(false))
   }
 
@@ -194,6 +169,8 @@ export default function OutreachComposerPage() {
               </div>
             </div>
           </section>
+
+          {toast && <Toast message={toast.msg} type={toast.type} />}
 
           {loading && (
             <div>

@@ -49,7 +49,11 @@ function Exit-Script {
 
 function Kill-Port {
     param([int]$Port)
-    $lines = netstat -ano 2>$null | Where-Object { $_ -match ":$Port\s" }
+    # Only sockets listening on the local port. Matching any line containing
+    # ":$Port" also hit processes merely connected to a remote host on that port
+    # (e.g. a browser tab) and killed them. Listeners are recognised by their
+    # wildcard remote address because the state column is localised by Windows.
+    $lines = netstat -ano 2>$null | Where-Object { $_ -match "^\s*TCP\s+\S+:$Port\s+(0\.0\.0\.0|\[::\]):0\s" }
     foreach ($line in $lines) {
         $parts  = ($line.Trim()) -split '\s+'
         $pidStr = $parts[-1]
@@ -139,7 +143,7 @@ $pyVersion = & $pythonExe --version 2>&1
 Write-Ok "$pyVersion  ->  $pythonExe"
 
 Write-Step "Checking Python packages"
-$stCheck = & $pythonExe -c "import fastapi" 2>&1
+& $pythonExe -c "import fastapi" 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Warn "Dependencies missing -- running: pip install -r requirements.txt"
     & $pythonExe -m pip install -r (Join-Path $RepoRoot 'requirements.txt') --quiet
@@ -147,6 +151,15 @@ if ($LASTEXITCODE -ne 0) {
     Write-Ok "Dependencies installed"
 } else {
     Write-Ok "Python packages available"
+}
+
+# ── Demo database ─────────────────────────────────────────────────────────────
+
+if ($Demo -and -not (Test-Path (Join-Path $RepoRoot 'rivalsense_demo.db'))) {
+    Write-Step "Building demo database (first run only, takes a minute or two)"
+    & $pythonExe (Join-Path $RepoRoot 'scripts\seed_demo_db.py')
+    if ($LASTEXITCODE -ne 0) { Exit-Script "Demo database seeding failed -- run: python scripts/seed_demo_db.py" }
+    Write-Ok "rivalsense_demo.db created"
 }
 
 # ── Ports ─────────────────────────────────────────────────────────────────────
@@ -181,11 +194,13 @@ if (-not (Test-Path $nodeModules)) {
 # ── FastAPI backend ───────────────────────────────────────────────────────────
 
 Write-Step "Opening FastAPI backend window  (port $ApiPort)"
-$demoLine   = if ($Demo) { '$env:DEMO_MODE = ''true''; ' } else { '' }
+# Live mode must force DEMO_MODE off: the child window inherits this process's
+# environment, where a DEMO_MODE=true line in .env would otherwise win.
+$demoLine   = if ($Demo) { '$env:DEMO_MODE = ''true''; ' } else { '$env:DEMO_MODE = ''false''; ' }
 $apiCommand = $demoLine +
               '$env:PYTHONPATH = ''' + $RepoRoot + '''; ' +
               'Set-Location ''' + $RepoRoot + '''; ' +
-              '& ''' + $pythonExe + ''' -m uvicorn backend.main:app --reload --host 0.0.0.0 --port ' + $ApiPort
+              '& ''' + $pythonExe + ''' -m uvicorn backend.main:app --reload --host 127.0.0.1 --port ' + $ApiPort
 Start-EncodedWindow -Title "RivalSense API :$ApiPort" -Command $apiCommand
 Write-Ok "FastAPI window opened  ->  http://localhost:$ApiPort"
 
@@ -199,7 +214,7 @@ Write-Ok "Vite window opened  ->  http://localhost:$FrontendPort"
 # ── Wait for API then open browser ───────────────────────────────────────────
 
 Write-Step "Waiting for FastAPI ..."
-$apiReady = Wait-Http "http://localhost:$ApiPort/api/meta/competitors"
+$apiReady = Wait-Http "http://127.0.0.1:$ApiPort/api/meta/competitors"
 if ($apiReady) { Write-Ok "API is responding" } else { Write-Warn "API not yet up -- opening browser anyway" }
 
 $appUrl = "http://localhost:$FrontendPort"

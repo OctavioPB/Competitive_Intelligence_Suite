@@ -1,40 +1,16 @@
 import { useState } from 'react'
-import type React from 'react'
 import { api } from '../services/api'
 import type { Lead } from '../services/api'
 import type { Page } from '../App'
 import Eyebrow from '../components/Eyebrow'
 import Spinner from '../components/Spinner'
+import Toast from '../components/Toast'
+import { errorMessage, useToast } from '../hooks/useToast'
+import { csvCell, downloadTextFile } from '../utils/download'
 import KpiCard from '../components/KpiCard'
 import StatusBadge from '../components/StatusBadge'
 import { useAppStore } from '../stores/appStore'
-
-const heroStyle: React.CSSProperties = {
-  backgroundColor: 'var(--primary)',
-  backgroundImage:
-    'linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)',
-  backgroundSize: '48px 48px',
-  padding: '56px 48px',
-}
-
-const btnNavy: React.CSSProperties = {
-  fontFamily: 'var(--fb)',
-  fontSize: 10,
-  fontWeight: 700,
-  letterSpacing: '2px',
-  textTransform: 'uppercase',
-  backgroundColor: 'var(--primary)',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 'var(--radius-sm)',
-  padding: '10px 22px',
-  cursor: 'pointer',
-}
-
-const btnGold: React.CSSProperties = {
-  ...btnNavy,
-  backgroundColor: 'var(--gold)',
-}
+import { heroStyle, btnGold, btnNavy, thStyle } from '../styles/shared'
 
 function urgencyBadgeProps(score: number) {
   if (score >= 0.7)
@@ -44,21 +20,11 @@ function urgencyBadgeProps(score: number) {
   return { label: `Low ${score.toFixed(2)}`, color: 'var(--status-green)', bg: 'var(--status-green-bg)' }
 }
 
-const thStyle: React.CSSProperties = {
-  fontFamily: 'var(--fb)',
-  fontSize: 10,
-  fontWeight: 600,
-  letterSpacing: '2px',
-  textTransform: 'uppercase',
-  color: '#fff',
-  padding: '10px 14px',
-  textAlign: 'left',
-}
-
 export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page) => void }) {
   const { setOutreachPrefill } = useAppStore()
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(false)
+  const { toast, showToast } = useToast()
 
   function handleCompose(lead: Lead) {
     setOutreachPrefill({
@@ -74,7 +40,7 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
     api.prospects
       .scan()
       .then(setLeads)
-      .catch(() => setLeads([]))
+      .catch((err) => showToast(errorMessage(err, 'Reddit scan failed. Is the backend running?'), 'error'))
       .finally(() => setLoading(false))
   }
 
@@ -83,7 +49,7 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
     api.prospects
       .demo()
       .then(setLeads)
-      .catch(() => setLeads([]))
+      .catch((err) => showToast(errorMessage(err, 'Could not load demo leads.'), 'error'))
       .finally(() => setLoading(false))
   }
 
@@ -100,25 +66,21 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
       'suggested_angle',
     ]
     const rows = leads.map((l) =>
+      // Every field is scraped, user-authored text — quote and neutralise all of them.
       [
         l.username,
         l.post_url,
         l.created_at,
         l.competitor_name,
         l.urgency_score.toFixed(3),
-        `"${l.complaint_summary.replace(/"/g, '""')}"`,
-        `"${l.company_signals.join('; ')}"`,
-        `"${l.suggested_angle.replace(/"/g, '""')}"`,
-      ].join(','),
+        l.complaint_summary,
+        l.company_signals.join('; '),
+        l.suggested_angle,
+      ]
+        .map(csvCell)
+        .join(','),
     )
-    const csv = [headers.join(','), ...rows].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'hot_prospects.csv'
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadTextFile('hot_prospects.csv', [headers.join(','), ...rows].join('\n'), 'text/csv')
   }
 
   const highUrgency = leads.filter((l) => l.urgency_score >= 0.7).length
@@ -182,6 +144,8 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
               Load Demo Leads
             </button>
           </div>
+
+          {toast && <Toast message={toast.msg} type={toast.type} />}
 
           {loading && <Spinner />}
 
@@ -280,7 +244,7 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
                         const badge = urgencyBadgeProps(lead.urgency_score)
                         return (
                           <tr
-                            key={lead.username + i}
+                            key={lead.post_url || lead.username + i}
                             style={{
                               backgroundColor:
                                 i % 2 === 0 ? 'var(--white)' : 'rgba(0,51,102,0.02)',

@@ -1,10 +1,11 @@
 """Alerts router — competitor vulnerability trigger alerts."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from backend.deps import known_competitor
 from config import COMPETITOR_NAMES
 from modules.trigger_alerts import Alert, check_triggers, generate_outreach
 
@@ -14,17 +15,14 @@ router = APIRouter(tags=["alerts"])
 def _alert_to_dict(alert: Alert) -> dict:
     """Serialise an Alert dataclass to a JSON-safe dict."""
     ts = alert.timestamp
-    if isinstance(ts, datetime):
-        ts_str = ts.isoformat()
-    else:
-        ts_str = str(ts)
+    ts_str = ts.isoformat() if isinstance(ts, datetime) else str(ts)
 
     return {
         "trigger_type": alert.trigger_type,
         "competitor": alert.competitor,
         "evidence_summary": alert.evidence_summary,
         "timestamp": ts_str,
-        "outreach_draft": alert.outreach_draft if alert.outreach_draft else None,
+        "outreach_draft": alert.outreach_draft or None,
     }
 
 
@@ -105,11 +103,11 @@ def draft_outreach(body: OutreachRequest):
     try:
         ts = datetime.fromisoformat(body.timestamp)
     except ValueError:
-        ts = datetime.utcnow()
+        ts = datetime.now(timezone.utc)
 
     alert = Alert(
         trigger_type=body.trigger_type,
-        competitor=body.competitor,
+        competitor=known_competitor(body.competitor),
         evidence_summary=body.evidence_summary,
         timestamp=ts,
         outreach_draft=body.outreach_draft or "",

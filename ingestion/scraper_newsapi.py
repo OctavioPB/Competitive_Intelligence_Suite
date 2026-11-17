@@ -2,7 +2,7 @@
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from newsapi import NewsApiClient
@@ -14,9 +14,10 @@ from ingestion.scraper_g2 import ScrapingError
 logger = logging.getLogger(__name__)
 
 _MONTHS_DEFAULT = 18
-# NewsAPI free tier only provides articles from the last 30 days.
-# Paid plans support up to 5 years. The scraper requests the full range
-# and returns whatever the tier allows.
+# NewsAPI's free tier only serves the last ~30 days and rejects older `from`
+# dates outright; paid plans go back years. The scraper asks for the full range
+# first and retries with the free-tier window if that is refused.
+_FREE_TIER_DAYS = 29
 
 
 def fetch_articles(
@@ -43,21 +44,33 @@ def fetch_articles(
         raise ScrapingError("NEWSAPI_KEY must be set to use the NewsAPI scraper.")
 
     name = competitor["name"]
-    from_date = (datetime.utcnow() - timedelta(days=months * 30)).strftime("%Y-%m-%d")
-    to_date = datetime.utcnow().strftime("%Y-%m-%d")
+    now = datetime.now(timezone.utc)
+    to_date = now.strftime("%Y-%m-%d")
 
     client = NewsApiClient(api_key=api_key)
     articles: list[dict[str, Any]] = []
 
-    try:
-        response = client.get_everything(
+    def _fetch(days_back: int) -> dict:
+        return client.get_everything(
             q=name,
-            from_param=from_date,
+            from_param=(now - timedelta(days=days_back)).strftime("%Y-%m-%d"),
             to=to_date,
             language="en",
             sort_by="publishedAt",
             page_size=100,
         )
+
+    try:
+        try:
+            response = _fetch(months * 30)
+        except NewsAPIException as exc:
+            if months * 30 <= _FREE_TIER_DAYS:
+                raise
+            logger.info(
+                "NewsAPI refused %d-month range for %s (%s) — retrying with last %d days.",
+                months, name, exc, _FREE_TIER_DAYS,
+            )
+            response = _fetch(_FREE_TIER_DAYS)
     except NewsAPIException as exc:
         raise ScrapingError(f"NewsAPI error for {name}: {exc}") from exc
 

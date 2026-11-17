@@ -25,6 +25,9 @@ _PAIN_FIXTURE = pd.DataFrame(
         "mention_count": [45, 30, 25, 18, 15, 12],
         "avg_sentiment": [-0.72, -0.65, -0.58, -0.40, -0.30, -0.20],
         "last_seen": ["2025-12-01"] * 6,
+        # last-30-day vs prior-30-day mention counts → rising, stable, declining, …
+        "current_count": [10, 5, 5, 0, 3, 0],
+        "prior_count":   [5, 5, 10, 0, 0, 4],
     }
 )
 
@@ -34,16 +37,14 @@ def _make_get_pain_points_df() -> pd.DataFrame:
     df = _PAIN_FIXTURE.copy()
     df["avg_severity"] = ((1.0 - df["avg_sentiment"]) / 2.0).clip(0.0, 1.0).round(3)
     df["trend_direction"] = "stable"
-    df["trend_icon"] = "→"
-    return df[["topic_label", "mention_count", "avg_severity", "trend_direction", "trend_icon"]]
+    return df[["topic_label", "mention_count", "avg_severity", "trend_direction"]]
 
 
 class TestPainPointRadar:
     """Unit tests for modules/pain_point_radar.py."""
 
     @patch("modules.pain_point_radar.query_df")
-    @patch("modules.pain_point_radar.compute_trend", return_value="stable")
-    def test_returns_required_columns(self, mock_trend, mock_query) -> None:
+    def test_returns_required_columns(self, mock_query) -> None:
         """get_pain_points() output must have exactly the expected columns."""
         from modules.pain_point_radar import get_pain_points
 
@@ -51,14 +52,13 @@ class TestPainPointRadar:
 
         result = get_pain_points("Salesforce", top_n=10)
 
-        required = {"topic_label", "mention_count", "avg_severity", "trend_direction", "trend_icon"}
+        required = {"topic_label", "mention_count", "avg_severity", "trend_direction"}
         assert required.issubset(result.columns), (
             f"Missing columns: {required - set(result.columns)}"
         )
 
     @patch("modules.pain_point_radar.query_df")
-    @patch("modules.pain_point_radar.compute_trend", return_value="stable")
-    def test_sorted_by_severity_descending(self, mock_trend, mock_query) -> None:
+    def test_sorted_by_severity_descending(self, mock_query) -> None:
         """Rows must be ordered with highest avg_severity first."""
         from modules.pain_point_radar import get_pain_points
 
@@ -72,8 +72,7 @@ class TestPainPointRadar:
         )
 
     @patch("modules.pain_point_radar.query_df")
-    @patch("modules.pain_point_radar.compute_trend", return_value="stable")
-    def test_avg_severity_in_valid_range(self, mock_trend, mock_query) -> None:
+    def test_avg_severity_in_valid_range(self, mock_query) -> None:
         """avg_severity must be in [0, 1] for all rows."""
         from modules.pain_point_radar import get_pain_points
 
@@ -85,8 +84,7 @@ class TestPainPointRadar:
         assert (result["avg_severity"] <= 1.0).all(), "avg_severity must be ≤ 1"
 
     @patch("modules.pain_point_radar.query_df")
-    @patch("modules.pain_point_radar.compute_trend", return_value="stable")
-    def test_top_n_limit_respected(self, mock_trend, mock_query) -> None:
+    def test_top_n_limit_respected(self, mock_query) -> None:
         """get_pain_points() must respect the top_n parameter."""
         from modules.pain_point_radar import get_pain_points
 
@@ -97,11 +95,11 @@ class TestPainPointRadar:
         # The SQL LIMIT is applied by query_df which is mocked — we return 6 rows.
         # The function should not further truncate, but with a real DB it would.
         # We test that top_n is passed through as a query param.
-        assert mock_query.call_args[0][1] == ("Salesforce", 3)
+        params = mock_query.call_args[0][1]
+        assert params[0] == "Salesforce" and params[-1] == 3
 
     @patch("modules.pain_point_radar.query_df")
-    @patch("modules.pain_point_radar.compute_trend", return_value="stable")
-    def test_empty_db_returns_empty_df(self, mock_trend, mock_query) -> None:
+    def test_empty_db_returns_empty_df(self, mock_query) -> None:
         """When no data exists, get_pain_points() returns an empty DataFrame."""
         from modules.pain_point_radar import get_pain_points
 
@@ -120,31 +118,45 @@ class TestPainPointRadar:
         # Simulate an anchor date and counts that yield each trend type
         valid_results = set()
         for current, prior in [(10, 5), (5, 5), (5, 10)]:
-            mock_query.side_effect = [
-                pd.DataFrame({"0": ["2025-12-01"]}),  # anchor query
-                pd.DataFrame({"current_count": [current], "prior_count": [prior]}),
-            ]
-            result = compute_trend(topic_id=0, window_days=30)
+            mock_query.return_value = pd.DataFrame(
+                {"current_count": [current], "prior_count": [prior]}
+            )
+            result = compute_trend(topic_id=0, window_days=30, competitor="Salesforce")
             assert result in {"rising", "stable", "declining"}, (
                 f"compute_trend() returned invalid value: '{result}'"
             )
             valid_results.add(result)
 
+        assert valid_results == {"rising", "stable", "declining"}
+
     @patch("modules.pain_point_radar.query_df")
-    @patch("modules.pain_point_radar.compute_trend", return_value="rising")
-    def test_trend_icon_matches_direction(self, mock_trend, mock_query) -> None:
-        """trend_icon must correspond to trend_direction for every row."""
+    def test_trend_direction_derived_from_window_counts(self, mock_query) -> None:
+        """trend_direction must follow the current-vs-prior window counts per topic."""
         from modules.pain_point_radar import get_pain_points
 
         mock_query.return_value = _PAIN_FIXTURE.copy()
 
-        result = get_pain_points("Salesforce")
+        result = get_pain_points("Salesforce").set_index("topic_label")["trend_direction"]
 
-        icon_map = {"rising": "↑", "stable": "→", "declining": "↓"}
-        for _, row in result.iterrows():
-            assert row["trend_icon"] == icon_map[row["trend_direction"]], (
-                f"Mismatch: direction={row['trend_direction']}, icon={row['trend_icon']}"
-            )
+        assert result["pricing_costs"] == "rising"       # 10 vs 5
+        assert result["support_response"] == "stable"    # 5 vs 5
+        assert result["learning_curve"] == "declining"   # 5 vs 10
+        assert result["mobile_app"] == "stable"          # 0 vs 0
+        assert result["integration"] == "rising"         # new topic: 3 vs 0
+        assert result["reporting"] == "declining"        # 0 vs 4
+
+    @patch("modules.pain_point_radar.query_df")
+    def test_single_query_scoped_to_competitor(self, mock_query) -> None:
+        """One DB round-trip, and both the anchor and the filter use the competitor."""
+        from modules.pain_point_radar import get_pain_points
+
+        mock_query.return_value = _PAIN_FIXTURE.copy()
+
+        get_pain_points("HubSpot", top_n=3)
+
+        assert mock_query.call_count == 1
+        params = mock_query.call_args.args[1]
+        assert params[0] == "HubSpot" and params[-2] == "HubSpot" and params[-1] == 3
 
 
 # ── Sprint 3 — Sentiment Timeline ─────────────────────────────────────────────
@@ -315,6 +327,17 @@ def _mock_model_factory() -> MagicMock:
 class TestFeatureWishMiner:
     """Unit tests for modules/feature_wish_miner.py."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_embedding_caches(self):
+        """Results are memoised on input text — reset so each test sees its own mock."""
+        from modules import feature_wish_miner as fwm
+
+        fwm._cluster_phrases.cache_clear()
+        fwm._best_feature_matches.cache_clear()
+        yield
+        fwm._cluster_phrases.cache_clear()
+        fwm._best_feature_matches.cache_clear()
+
     @patch("modules.feature_wish_miner._get_model")
     @patch("modules.feature_wish_miner.query_df")
     def test_returns_required_columns(self, mock_query, mock_get_model) -> None:
@@ -434,7 +457,6 @@ _PAIN_FIXTURE_5 = pd.DataFrame(
         "mention_count": [45, 30, 25, 18, 15],
         "avg_severity": [0.86, 0.82, 0.79, 0.70, 0.65],
         "trend_direction": ["rising", "stable", "stable", "declining", "stable"],
-        "trend_icon": ["↑", "→", "→", "↓", "→"],
     }
 )
 

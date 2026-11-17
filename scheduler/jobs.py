@@ -32,18 +32,23 @@ def job_check_alerts() -> None:
     alerts = check_triggers(COMPETITOR_NAMES)
 
     for alert in alerts:
-        alert.outreach_draft = generate_outreach(alert, llm=False)
-        send_slack_alert(alert)
+        try:
+            alert.outreach_draft = generate_outreach(alert, llm=False)
+            send_slack_alert(alert)
+        except Exception as exc:  # noqa: BLE001 — one bad webhook call must not drop the rest
+            logger.error(
+                "Could not deliver alert %s / %s: %s",
+                alert.competitor, alert.trigger_type, exc,
+            )
 
-    logger.info("Scheduled job: %d alert(s) fired.", len(alerts))
+    logger.info("Scheduled job: %d alert(s) detected.", len(alerts))
 
 
 def job_send_digest() -> None:
-    """Weekly job: generate intelligence digest and send via email + Slack."""
-    import os
-
+    """Weekly job: generate the intelligence digest and email the week's alerts."""
     from config import COMPETITOR_NAMES
     from modules.digest_generator import generate_digest
+    from modules.trigger_alerts import check_triggers
 
     logger.info("Scheduled job: generating weekly intelligence digest ...")
     try:
@@ -56,7 +61,14 @@ def job_send_digest() -> None:
     to_email = os.getenv("DIGEST_EMAIL", "")
     if to_email:
         from outputs.email_digest import send_weekly_digest
-        send_weekly_digest(alerts=[], leads_df=None, to_email=to_email)
+
+        # The email body is built from the alert list — sending it empty made
+        # every weekly email read "No alerts detected this week".
+        send_weekly_digest(
+            alerts=check_triggers(COMPETITOR_NAMES),
+            leads_df=None,
+            to_email=to_email,
+        )
 
     logger.info("Scheduled job: digest complete.")
 
@@ -65,21 +77,22 @@ _scheduler_started = False
 
 
 def start_scheduler() -> None:
-    """Start the APScheduler BackgroundScheduler with all daily jobs.
+    """Start the APScheduler BackgroundScheduler with all recurring jobs.
 
-    Only starts when DEMO_MODE is not 'true'. A module-level boolean guards
-    against double-initialisation on repeated calls (e.g. from FastAPI lifespan).
+    Called from the FastAPI lifespan when ENABLE_SCHEDULER=true. Never starts
+    when DEMO_MODE is 'true'. A module-level boolean guards against
+    double-initialisation on repeated calls.
     """
     global _scheduler_started
-    from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore[import]
 
-    demo_mode = os.getenv("DEMO_MODE", "false").lower() == "true"
-    if demo_mode:
+    if os.getenv("DEMO_MODE", "false").lower() == "true":
         logger.info("DEMO_MODE=true — APScheduler not started.")
         return
 
     if _scheduler_started:
         return
+
+    from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore[import]
 
     scheduler = BackgroundScheduler()
     scheduler.add_job(job_scrape_and_process, "cron", hour=2, minute=0, id="daily_scrape")

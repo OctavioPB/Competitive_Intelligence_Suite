@@ -10,7 +10,18 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
       ...opts?.headers,
     },
   })
-  if (!res.ok) throw new Error(`${res.status} ${path}`)
+  if (!res.ok) {
+    // FastAPI reports errors as { detail: string } — surface that to the user.
+    let detail = ''
+    try {
+      const body: unknown = await res.json()
+      const d = (body as { detail?: unknown } | null)?.detail
+      if (typeof d === 'string') detail = d
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(detail || `Request failed (${res.status})`)
+  }
   return res.json() as Promise<T>
 }
 
@@ -21,7 +32,6 @@ export interface PainPoint {
   mention_count: number
   avg_severity: number
   trend_direction: 'rising' | 'stable' | 'declining'
-  trend_icon: string
 }
 
 export interface TimelineEntry {

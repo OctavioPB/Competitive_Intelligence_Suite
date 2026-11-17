@@ -1,11 +1,10 @@
 """Convert battlecard dicts to PDF (weasyprint) or HTML (fallback)."""
 
 import logging
+from html import escape
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-
-_BATTLECARD_DIR = Path("outputs/battlecards")
 
 # Attempt to import weasyprint once at module load — determines which export path is used.
 try:
@@ -152,20 +151,24 @@ def battlecard_to_html(card: dict) -> str:
     Returns:
         Full HTML document string.
     """
-    competitor = card.get("competitor", "Unknown")
-    generated_at = card.get("generated_at", "")[:19].replace("T", " ")
-    pitch = card.get("recommended_pitch", "")
+    # Card text is LLM output built from scraped reviews — escape every field.
+    def e(value: object) -> str:
+        return escape(str(value))
+
+    competitor = e(card.get("competitor", "Unknown"))
+    generated_at = e(card.get("generated_at", "")[:19].replace("T", " "))
+    pitch = e(card.get("recommended_pitch", ""))
 
     objections_html = ""
     for i, obj in enumerate(card.get("objections", []), 1):
         objections_html += f"""
         <div class="objection">
-            <h3>{i}. {obj.get('objection', '')}</h3>
+            <h3>{i}. {e(obj.get('objection', ''))}</h3>
             <div class="label">Evidence</div>
-            <div class="text">{obj.get('evidence', '')}</div>
+            <div class="text">{e(obj.get('evidence', ''))}</div>
             <div class="label">Counter</div>
-            <div class="text">{obj.get('counter', '')}</div>
-            <div class="quote">"{obj.get('proof_quote', '')}"</div>
+            <div class="text">{e(obj.get('counter', ''))}</div>
+            <div class="quote">"{e(obj.get('proof_quote', ''))}"</div>
         </div>
         """
 
@@ -173,11 +176,11 @@ def battlecard_to_html(card: dict) -> str:
     for gap in card.get("feature_gaps", []):
         gap_rows += f"""
         <tr>
-            <td>{gap.get('gap', '')}</td>
+            <td>{e(gap.get('gap', ''))}</td>
             <td style="text-align:center;font-weight:600;color:#003366;">
-                {gap.get('frequency', 0)}
+                {e(gap.get('frequency', 0))}
             </td>
-            <td>{gap.get('your_advantage', '')}</td>
+            <td>{e(gap.get('your_advantage', ''))}</td>
             <td><span class="badge-covered">✓ We have it</span></td>
         </tr>
         """

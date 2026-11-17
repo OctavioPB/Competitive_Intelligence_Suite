@@ -2,33 +2,47 @@
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+import os
+from datetime import datetime, timezone
+
+import pandas as pd
 
 from database.db import execute, query_df
-from utils.llm import get_client, retry_with_backoff
+from utils.llm import REPAIR_SYSTEM_PROMPT, call_claude, parse_json_object
 
 logger = logging.getLogger(__name__)
 
-_MODEL = "claude-sonnet-4-6"
+_WINDOW_DAYS = 30
 
 # ── SQL ───────────────────────────────────────────────────────────────────────
 
+# Both windows anchor on the competitor's MAX(date) rather than today's date, so
+# the digest stays meaningful on fixture/demo data (see README, decision #2).
 _SENTIMENT_DELTA_SQL = """
+    WITH anchor AS (
+        SELECT MAX(date) AS d FROM processed_reviews WHERE competitor_name = :competitor
+    )
     SELECT
-        AVG(CASE WHEN date >= ? THEN sentiment_score END) AS recent_avg,
-        AVG(CASE WHEN date >= ? AND date < ? THEN sentiment_score END) AS prior_avg
+        AVG(CASE WHEN date >= date((SELECT d FROM anchor), :recent)
+                 THEN sentiment_score END) AS recent_avg,
+        AVG(CASE WHEN date >= date((SELECT d FROM anchor), :prior)
+                  AND date <  date((SELECT d FROM anchor), :recent)
+                 THEN sentiment_score END) AS prior_avg
     FROM processed_reviews
-    WHERE competitor_name = ?
+    WHERE competitor_name = :competitor
       AND source NOT IN ('newsapi')
 """
 
 _TOP_PAIN_SQL = """
     SELECT topic_label, COUNT(*) AS cnt
     FROM processed_reviews
-    WHERE competitor_name = ?
+    WHERE competitor_name = :competitor
       AND topic_cluster >= 0
       AND topic_label NOT IN ('misc', 'insufficient_data')
-      AND date >= ?
+      AND date >= date(
+              (SELECT MAX(date) FROM processed_reviews WHERE competitor_name = :competitor),
+              :recent
+          )
     GROUP BY topic_label
     ORDER BY cnt DESC
     LIMIT 1
@@ -92,58 +106,74 @@ Generate the digest JSON now.
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 
-def _sentiment_delta(competitor: str, window_days: int = 30) -> tuple[float, float]:
+def _sentiment_delta(competitor: str, window_days: int = _WINDOW_DAYS) -> tuple[float, float]:
     """Return (recent_avg, prior_avg) sentiment for a competitor."""
-    now         = datetime.now(timezone.utc)
-    recent_from = (now - timedelta(days=window_days)).strftime("%Y-%m-%d")
-    prior_from  = (now - timedelta(days=2 * window_days)).strftime("%Y-%m-%d")
-
     row = query_df(
         _SENTIMENT_DELTA_SQL,
-        (recent_from, prior_from, recent_from, competitor),
+        {
+            "competitor": competitor,
+            "recent": f"-{window_days} days",
+            "prior": f"-{2 * window_days} days",
+        },
     )
     if row.empty:
         return 0.0, 0.0
-    recent = float(row.iloc[0]["recent_avg"] or 0.0)
-    prior  = float(row.iloc[0]["prior_avg"]  or 0.0)
+    # AVG() over an empty window is NULL, which pandas surfaces as None or NaN.
+    recent, prior = (
+        0.0 if pd.isna(v) else float(v)
+        for v in (row.iloc[0]["recent_avg"], row.iloc[0]["prior_avg"])
+    )
     return round(recent, 4), round(prior, 4)
 
 
-def _top_pain(competitor: str, window_days: int = 30) -> str:
-    since = (datetime.now(timezone.utc) - timedelta(days=window_days)).strftime("%Y-%m-%d")
-    row   = query_df(_TOP_PAIN_SQL, (competitor, since))
+def _top_pain(competitor: str, window_days: int = _WINDOW_DAYS) -> str:
+    row = query_df(
+        _TOP_PAIN_SQL,
+        {"competitor": competitor, "recent": f"-{window_days} days"},
+    )
     if row.empty:
         return "insufficient data"
     return str(row.iloc[0]["topic_label"]).replace("_", " ")
 
 
-@retry_with_backoff
 def _call_claude(system: str, user: str) -> str:
-    client   = get_client()
-    response = client.messages.create(
-        model=_MODEL,
-        max_tokens=2048,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-    logger.info(
-        "Digest token usage: %d in + %d out",
-        response.usage.input_tokens,
-        response.usage.output_tokens,
-    )
-    return response.content[0].text
+    return call_claude(system, user, max_tokens=2048, label="Digest")
 
 
 def _parse_digest(raw: str) -> dict:
-    text = raw.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text  = "\n".join(lines[1:-1]) if len(lines) > 2 else text
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError as exc:
-        logger.error("Digest JSON parse failed. Raw: %.500s", raw)
-        raise ValueError("Failed to parse digest JSON") from exc
+    return parse_json_object(
+        raw,
+        context="digest",
+        repair=lambda text: _call_claude(REPAIR_SYSTEM_PROMPT, text),
+    )
+
+
+def _demo_top_lead() -> str | None:
+    """Return a sample prospect line for the digest — demo mode only.
+
+    Live Reddit scanning is too slow to run inline here, and a made-up lead must
+    never reach a real executive brief, so outside DEMO_MODE this returns None.
+    """
+    if os.getenv("DEMO_MODE", "false").lower() != "true":
+        return None
+
+    from modules.hot_prospect_finder import enrich_lead, score_urgency
+
+    post = {
+        "source": "reddit", "post_id": "dgst01",
+        "username": "top_prospect",
+        "post_text": "Switching from Salesforce — pricing is insane and support is terrible.",
+        "post_url": "https://reddit.com/r/CRM/comments/example",
+        "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "competitor_name": "Salesforce",
+        "upvotes": 50, "num_comments": 20, "sentiment_score": -0.75,
+    }
+    post["urgency_score"] = score_urgency(post)
+    lead = enrich_lead(post)
+    return (
+        f"{lead['username']} (urgency={lead['urgency_score']:.2f}): "
+        f"{lead['complaint_summary'][:100]}"
+    )
 
 
 def _store_digest(data: dict) -> None:
@@ -192,7 +222,6 @@ def generate_digest(competitor_names: list[str]) -> dict:
         Digest dict with keys: generated_at, overall_theme, per_competitor,
         top_alert, top_lead.
     """
-    from config import COMPETITOR_NAMES, SUBREDDITS
     from modules.trigger_alerts import check_triggers
 
     # ── Collect competitor intelligence ───────────────────────────────────────
@@ -226,23 +255,7 @@ def generate_digest(competitor_names: list[str]) -> dict:
 
     # ── Collect top prospect ──────────────────────────────────────────────────
     try:
-        from modules.hot_prospect_finder import enrich_lead, score_urgency
-
-        _FIXTURE_POST = {
-            "source": "reddit", "post_id": "dgst01",
-            "username": "top_prospect",
-            "post_text": "Switching from Salesforce — pricing is insane and support is terrible.",
-            "post_url": "https://reddit.com/r/CRM/comments/example",
-            "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-            "competitor_name": "Salesforce",
-            "upvotes": 50, "num_comments": 20, "sentiment_score": -0.75,
-        }
-        _FIXTURE_POST["urgency_score"] = score_urgency(_FIXTURE_POST)
-        lead = enrich_lead(_FIXTURE_POST)
-        top_lead_raw = (
-            f"{lead['username']} (urgency={lead['urgency_score']:.2f}): "
-            f"{lead['complaint_summary'][:100]}"
-        )
+        top_lead_raw = _demo_top_lead()
     except Exception as exc:  # noqa: BLE001
         logger.warning("Lead enrichment failed in digest: %s", exc)
         top_lead_raw = None

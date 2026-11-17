@@ -1,39 +1,14 @@
-﻿import { useState } from 'react'
-import type React from 'react'
+import { useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { api } from '../services/api'
 import type { Battlecard } from '../services/api'
 import Eyebrow from '../components/Eyebrow'
 import Spinner from '../components/Spinner'
 import Toast from '../components/Toast'
+import { errorMessage, useToast } from '../hooks/useToast'
+import { downloadTextFile } from '../utils/download'
 import CompetitorSelect from '../components/CompetitorSelect'
-
-const heroStyle: React.CSSProperties = {
-  backgroundColor: 'var(--primary)',
-  backgroundImage:
-    'linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)',
-  backgroundSize: '48px 48px',
-  padding: '56px 48px',
-}
-
-const btnGold: React.CSSProperties = {
-  fontFamily: 'var(--fb)',
-  fontSize: 10,
-  fontWeight: 700,
-  letterSpacing: '2px',
-  textTransform: 'uppercase',
-  backgroundColor: 'var(--gold)',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 'var(--radius-sm)',
-  padding: '10px 22px',
-  cursor: 'pointer',
-}
-
-const btnNavy: React.CSSProperties = {
-  ...btnGold,
-  backgroundColor: 'var(--primary)',
-}
+import { heroStyle, btnGold, btnNavy, thStyle } from '../styles/shared'
 
 function buildMarkdown(card: Battlecard): string {
   const lines: string[] = [
@@ -62,27 +37,11 @@ function buildMarkdown(card: Battlecard): string {
   return lines.join('\n')
 }
 
-const thStyle: React.CSSProperties = {
-  fontFamily: 'var(--fb)',
-  fontSize: 10,
-  fontWeight: 600,
-  letterSpacing: '2px',
-  textTransform: 'uppercase',
-  color: '#fff',
-  padding: '10px 14px',
-  textAlign: 'left',
-}
-
 export default function BattlecardPage() {
   const { competitor } = useAppStore()
   const [card, setCard] = useState<Battlecard | null>(null)
   const [loading, setLoading] = useState(false)
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'warning' } | null>(null)
-
-  function showToast(msg: string, type: 'success' | 'error' | 'warning') {
-    setToast({ msg, type })
-    setTimeout(() => setToast(null), 4000)
-  }
+  const { toast, showToast } = useToast()
 
   function handleGenerate() {
     setLoading(true)
@@ -93,7 +52,7 @@ export default function BattlecardPage() {
         setCard(c)
         showToast('Battlecard generated successfully.', 'success')
       })
-      .catch(() => showToast('Generation failed. Check API key and backend.', 'error'))
+      .catch((err) => showToast(errorMessage(err, 'Generation failed. Check API key and backend.'), 'error'))
       .finally(() => setLoading(false))
   }
 
@@ -109,25 +68,22 @@ export default function BattlecardPage() {
           showToast('No cached battlecard found. Click Generate to create one.', 'warning')
         }
       })
-      .catch(() => showToast('Failed to load cached battlecard.', 'error'))
+      .catch((err) => showToast(errorMessage(err, 'Failed to load cached battlecard.'), 'error'))
       .finally(() => setLoading(false))
   }
 
   function handleDownload() {
     if (!card) return
-    const md = buildMarkdown(card)
-    const blob = new Blob([md], { type: 'text/markdown' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `battlecard_${card.competitor.toLowerCase()}.md`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadTextFile(
+      `battlecard_${card.competitor.toLowerCase().replace(/\s+/g, '_')}.md`,
+      buildMarkdown(card),
+      'text/markdown',
+    )
   }
 
   return (
     <div>
-      {/* â”€â”€ Hero â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <div style={heroStyle}>
         <div style={{ maxWidth: 'var(--max-width-dashboard)', margin: '0 auto' }}>
           <Eyebrow light>Battlecard Generator</Eyebrow>
@@ -153,13 +109,13 @@ export default function BattlecardPage() {
               maxWidth: 560,
             }}
           >
-            AI-powered sales battlecards generated from live competitor data â€”
+            AI-powered sales battlecards generated from live competitor data —
             objections, counters, and feature gaps ready for your sales team.
           </p>
         </div>
       </div>
 
-      {/* â”€â”€ Body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Body ─────────────────────────────────────────────────────────── */}
       <div style={{ backgroundColor: 'var(--light)', minHeight: '60vh' }}>
         <div
           style={{
@@ -193,7 +149,7 @@ export default function BattlecardPage() {
                   marginTop: 8,
                 }}
               >
-                Claude is generating your battlecard from live dataâ€¦ (~10s)
+                Claude is generating your battlecard from live data… (~10s)
               </p>
             </div>
           )}

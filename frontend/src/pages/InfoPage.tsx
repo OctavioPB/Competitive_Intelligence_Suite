@@ -1,6 +1,7 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import type React from 'react'
 import Eyebrow from '../components/Eyebrow'
+import { thStyle } from '../styles/shared'
 
 const heroStyle: React.CSSProperties = {
   backgroundColor: 'var(--primary)',
@@ -16,7 +17,7 @@ type Tab = (typeof TABS)[number]
 const MODULE_LIST = [
   {
     name: 'Pain Point Radar',
-    desc: 'Ranks competitor pain points by mention frequency, severity score (0â€“1), and trend direction. Surfaces the specific friction categories â€” pricing, support, UX â€” where your product can win.',
+    desc: 'Ranks competitor pain points by mention frequency, severity score (0–1), and trend direction. Surfaces the specific friction categories — pricing, support, UX — where your product can win.',
   },
   {
     name: 'Sentiment Timeline',
@@ -32,7 +33,7 @@ const MODULE_LIST = [
   },
   {
     name: 'Trigger Alerts',
-    desc: 'Detects vulnerability signals â€” sentiment drops, negative news articles, and review spikes â€” and generates personalised outreach drafts using Claude or template substitution.',
+    desc: 'Detects vulnerability signals — sentiment drops, negative news articles, and review spikes — and generates personalised outreach drafts using Claude or template substitution.',
   },
   {
     name: 'Hot Prospect Finder',
@@ -62,23 +63,12 @@ const card: React.CSSProperties = {
   border: '1px solid var(--primary-10)',
 }
 
-const thStyle: React.CSSProperties = {
-  fontFamily: 'var(--fb)',
-  fontSize: 10,
-  fontWeight: 600,
-  letterSpacing: '2px',
-  textTransform: 'uppercase',
-  color: '#fff',
-  padding: '10px 14px',
-  textAlign: 'left',
-}
-
 export default function InfoPage() {
   const [tab, setTab] = useState<Tab>('Business View')
 
   return (
     <div>
-      {/* â”€â”€ Hero â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <div style={heroStyle}>
         <div style={{ maxWidth: 'var(--max-width-dashboard)', margin: '0 auto' }}>
           <Eyebrow light>Platform Info</Eyebrow>
@@ -104,7 +94,7 @@ export default function InfoPage() {
               maxWidth: 560,
             }}
           >
-            How RivalSense works â€” business capabilities and engineering
+            How RivalSense works — business capabilities and engineering
             architecture for the Competitive Intelligence Suite.
           </p>
 
@@ -137,7 +127,7 @@ export default function InfoPage() {
         </div>
       </div>
 
-      {/* â”€â”€ Body â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Body ─────────────────────────────────────────────────────────── */}
       <div style={{ backgroundColor: 'var(--light)', minHeight: '60vh' }}>
         <div
           style={{
@@ -176,8 +166,8 @@ export default function InfoPage() {
                     }}
                   >
                     RivalSense is a competitive intelligence platform that
-                    continuously monitors your competitors â€” Salesforce, HubSpot,
-                    and Pipedrive â€” across review sites, Reddit, and news sources.
+                    continuously monitors your competitors — Salesforce, HubSpot,
+                    and Pipedrive — across review sites, Reddit, and news sources.
                     It transforms raw customer signals into actionable sales
                     intelligence that your team can act on immediately.
                   </p>
@@ -191,7 +181,7 @@ export default function InfoPage() {
                   >
                     Instead of manually reading thousands of reviews or setting up
                     alerts for competitor news, RivalSense surfaces the highest-value
-                    signals automatically â€” ranked by urgency, enriched with context,
+                    signals automatically — ranked by urgency, enriched with context,
                     and paired with ready-to-use outreach drafts.
                   </p>
                 </div>
@@ -262,9 +252,9 @@ export default function InfoPage() {
                 </h2>
                 <div style={card}>
                   {[
-                    'Signals are ranked by urgency â€” not just recency â€” so your team knows exactly where to focus.',
+                    'Signals are ranked by urgency — not just recency — so your team knows exactly where to focus.',
                     'Outreach drafts are generated automatically, cutting from signal to email in under 60 seconds.',
-                    'All data is structured and stored locally â€” no vendor lock-in, no per-seat pricing on data.',
+                    'All data is structured and stored locally — no vendor lock-in, no per-seat pricing on data.',
                     'Battlecards and prospect lists export as Markdown and CSV for immediate use in your existing workflow.',
                   ].map((point, i) => (
                     <div
@@ -332,7 +322,7 @@ export default function InfoPage() {
                     The platform uses a decoupled architecture: a FastAPI backend
                     wraps all existing Python analysis modules, and a React 18
                     frontend consumes the REST API via a Vite dev proxy. No
-                    server-side rendering â€” the frontend is a pure SPA.
+                    server-side rendering — the frontend is a pure SPA.
                   </p>
                   <p
                     style={{
@@ -342,7 +332,7 @@ export default function InfoPage() {
                       lineHeight: 1.75,
                     }}
                   >
-                    All chart rendering uses hand-coded SVG inside React components â€”
+                    All chart rendering uses hand-coded SVG inside React components —
                     no external charting library. State is managed with Zustand for
                     globally shared values (selected competitor) and React
                     <code style={{ fontSize: 12, backgroundColor: 'var(--primary-10)', padding: '1px 4px', borderRadius: 3 }}>
@@ -461,12 +451,12 @@ export default function InfoPage() {
                     {
                       module: 'modules/trigger_alerts.py',
                       fn: 'check_triggers(competitor_list)',
-                      desc: 'Runs three detectors per competitor: sentiment delta < -0.5 in last 7 days, negative keyword in recent news, and 2Ã— review spike vs 30-day baseline.',
+                      desc: 'Runs three detectors per competitor: sentiment delta < -0.5 in last 7 days, negative keyword in recent news, and 2× review spike vs 30-day baseline.',
                     },
                     {
                       module: 'modules/hot_prospect_finder.py',
                       fn: 'scan_reddit() + enrich_lead()',
-                      desc: 'Uses PRAW to search subreddits for switching-intent phrases. Scores each post on a 0â€“1 urgency scale and enriches with complaint summary and outreach angle.',
+                      desc: 'Uses PRAW to search subreddits for switching-intent phrases. Scores each post on a 0–1 urgency scale and enriches with complaint summary and outreach angle.',
                     },
                   ].map((m) => (
                     <div key={m.module} style={card}>

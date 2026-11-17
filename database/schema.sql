@@ -37,6 +37,8 @@ CREATE INDEX IF NOT EXISTS idx_processed_competitor  ON processed_reviews(compet
 CREATE INDEX IF NOT EXISTS idx_processed_topic       ON processed_reviews(topic_label);
 CREATE INDEX IF NOT EXISTS idx_processed_date        ON processed_reviews(date);
 CREATE INDEX IF NOT EXISTS idx_processed_sentiment   ON processed_reviews(sentiment_score);
+-- Every module filters by competitor plus a date window — serve that from one index.
+CREATE INDEX IF NOT EXISTS idx_processed_comp_date   ON processed_reviews(competitor_name, date);
 
 CREATE TABLE IF NOT EXISTS digests (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

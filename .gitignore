@@ -24,7 +24,11 @@ env/
 .env.*
 !.env.example
 
-# Databases (exclude *.db; rivalsense_demo.db is committed as a release artifact)
+# Node
+node_modules/
+frontend/dist/
+
+# Databases — never committed; build the demo DB with scripts/seed_demo_db.py
 *.db
 *.sqlite
 *.sqlite3
@@ -33,6 +37,9 @@ env/
 outputs/battlecards/*.pdf
 outputs/battlecards/*.json
 outputs/battlecards/*.md
+outputs/churn/
+outputs/*.csv
+outputs/*.json
 
 # IDE
 .vscode/

@@ -21,7 +21,6 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 # Point db.py at the demo database BEFORE any project imports
@@ -480,9 +479,9 @@ def _insert_reviews(rows: list[dict]) -> None:
 
 def _reset_db() -> None:
     """Delete rivalsense_demo.db and recreate the schema."""
-    from database.db import init_schema
+    from database.db import _db_path, init_schema
 
-    demo_path = Path("rivalsense_demo.db")
+    demo_path = _db_path()  # resolved against the repo root, not the CWD
     if demo_path.exists():
         demo_path.unlink()
         logger.info("Deleted existing rivalsense_demo.db")
@@ -595,10 +594,10 @@ def _run_pipeline() -> None:
 
 def _write_battlecard_stubs() -> None:
     """Write pre-built battlecard JSON stubs to outputs/battlecards/."""
-    battlecard_dir = Path("outputs/battlecards")
-    battlecard_dir.mkdir(parents=True, exist_ok=True)
+    from modules.battlecard_generator import _BATTLECARD_DIR, battlecard_to_markdown
 
-    from modules.battlecard_generator import battlecard_to_markdown
+    battlecard_dir = _BATTLECARD_DIR
+    battlecard_dir.mkdir(parents=True, exist_ok=True)
 
     for competitor, card in _STUB_BATTLECARDS.items():
         slug = competitor.lower().replace(" ", "_")

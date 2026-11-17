@@ -66,10 +66,7 @@ python -m venv .venv
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 
-# Generate the pre-seeded demo database
-python scripts/seed_demo_db.py
-
-# Launch React + FastAPI stack
+# Launch React + FastAPI stack (builds rivalsense_demo.db on first run)
 .\demo.ps1
 ```
 
@@ -107,6 +104,9 @@ SLACK_WEBHOOK_URL=https://hooks.slack.com/...
 # Optional
 SENDGRID_API_KEY=...     # weekly email digest
 DIGEST_EMAIL=...         # recipient for scheduled digest
+ANTHROPIC_MODEL=...      # override the Claude model for every module
+ENABLE_SCHEDULER=false   # run daily scrape / alerts / weekly digest inside the API process
+CORS_ORIGINS=...         # extra browser origins allowed to call the API directly
 DATABASE_URL=rivalsense.db
 
 # Toggle demo mode (uses rivalsense_demo.db, skips APScheduler)
@@ -148,6 +148,7 @@ rivalsense/
 │
 ├── backend/
 │   ├── main.py                # FastAPI app + router registration
+│   ├── deps.py                # Shared helpers: competitor validation, JSON-safe floats
 │   └── routers/               # One router per module (REST endpoints)
 │
 ├── frontend/
@@ -157,7 +158,9 @@ rivalsense/
 │   │   ├── components/        # Nav, Footer, KpiCard, Eyebrow, …
 │   │   ├── services/api.ts    # All HTTP calls — no fetch in components
 │   │   ├── stores/appStore.ts # Zustand (competitor, outreach prefill)
-│   │   └── styles/tokens.css  # OPB design tokens
+│   │   ├── hooks/             # useTheme, useToast
+│   │   ├── utils/download.ts  # File download + CSV escaping
+│   │   └── styles/            # tokens.css (OPB design tokens), shared.ts (shared style objects)
 │   ├── index.html
 │   └── vite.config.ts         # Proxies /api/* → FastAPI :8000
 │
@@ -172,13 +175,17 @@ rivalsense/
 ├── scripts/
 │   └── seed_demo_db.py        # Generates rivalsense_demo.db
 │
+├── utils/
+│   ├── llm.py                 # Claude client, retry, JSON parse/repair (shared by all LLM modules)
+│   └── embeddings.py          # Process-wide sentence-transformer singleton
+│
 ├── database/
 │   ├── schema.sql             # reviews, processed_reviews, digests tables
 │   └── db.py                  # SQLite helpers (query_df, execute, executemany)
 │
 └── tests/
-    ├── test_pipeline.py        # 39 tests
-    └── test_modules.py         # 20 tests (all modules)
+    ├── test_pipeline.py        # 20 tests
+    └── test_modules.py         # 40 tests (all modules)
 ```
 
 ---
@@ -187,7 +194,7 @@ rivalsense/
 
 ### 1. SQLite over PostgreSQL for the prototype
 
-SQLite ships with Python, requires zero infra, and the `DATABASE_URL` variable allows a one-line migration to Postgres when needed. `db.py` wraps every query in `query_df()` (returns a DataFrame) and `executemany()` so the caller never touches a connection object. The demo DB is a frozen SQLite file committed to the repo — stakeholders can run the prototype with no server.
+SQLite ships with Python, requires zero infra, and the `DATABASE_URL` variable allows a one-line migration to Postgres when needed. `db.py` wraps every query in `query_df()` (returns a DataFrame) and `executemany()` so the caller never touches a connection object. The demo DB is a SQLite file generated locally by `scripts/seed_demo_db.py` (database files are git-ignored) — stakeholders can run the prototype with no server.
 
 ### 2. MAX(date) anchor for all time-windowed SQL
 
@@ -199,11 +206,11 @@ date >= date(
     '-7 days')
 ```
 
-This means fixture data with dates ending in 2025-12 always produces meaningful signals regardless of when the query runs. Using `date('now', ...)` would return empty results the moment the fixture data ages past the window.
+This means fixture data with dates ending in 2025-12 always produces meaningful signals regardless of when the query runs. Using `date('now', ...)` would return empty results the moment the fixture data ages past the window. The rule applies to every module with a window — pain-point trends, trigger alerts, churn analysis and the digest — and the anchor is always scoped to the competitor being analysed.
 
 ### 3. Two-mode database: DEMO_MODE vs DATABASE_URL
 
-`database/db.py` reads `DEMO_MODE` at call time (not import time). When `DEMO_MODE=true` it returns `rivalsense_demo.db`; otherwise it uses `DATABASE_URL`. This means the seeder script (`seed_demo_db.py`) can target the demo DB by setting `DATABASE_URL=rivalsense_demo.db` before importing any project module — no monkey-patching required.
+`database/db.py` reads `DEMO_MODE` at call time (not import time). When `DEMO_MODE=true` it returns `rivalsense_demo.db`; otherwise it uses `DATABASE_URL`. Relative paths resolve against the repo root, so the app finds the same file whatever directory it is launched from. This means the seeder script (`seed_demo_db.py`) can target the demo DB by setting `DATABASE_URL=rivalsense_demo.db` before importing any project module — no monkey-patching required.
 
 ### 4. Lazy imports to avoid circular dependencies and selective loading
 
@@ -220,25 +227,24 @@ def enrich_lead(lead: dict) -> dict:
 Without a cache, `SentenceTransformer("all-MiniLM-L6-v2")` would reload 90 MB of weights on every call. A module-level singleton solves this:
 
 ```python
-_model: Any = None
-
-def _get_model() -> Any:
-    global _model
-    if _model is None:
-        from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
-    return _model
+# utils/embeddings.py — shared by the pipeline (sentiment, BERTopic) and M03
+@lru_cache(maxsize=1)
+def get_embedding_model():
+    from sentence_transformers import SentenceTransformer
+    return SentenceTransformer("all-MiniLM-L6-v2")
 ```
+
+The pipeline embeds each review once per run and passes the vectors to topic training, topic inference and sentiment scoring. The Feature Wish Miner memoises its clustering on the exact phrase list, so repeat requests skip the model entirely and new reviews invalidate the cache automatically.
 
 ### 6. Claude API used only for generation, never for retrieval
 
 The LLM is called in five places: M04 (battlecards), M05 (outreach drafts), M07 (churn categorisation), M08 (digest synthesis), M09 (outreach composition). Every other intelligence function — topic clustering, sentiment scoring, entity extraction, urgency scoring — runs entirely local. This keeps the marginal cost of a demo under $0.20 and makes the app functional with `ANTHROPIC_API_KEY` absent for the analytical modules.
 
-All LLM calls are wrapped with `@retry_with_backoff` (exponential backoff, 3 retries) from `utils/llm.py`.
+All LLM calls go through `call_claude()` in `utils/llm.py`, which retries rate limits, connection errors and 5xx responses with exponential backoff (3 attempts). Non-retryable errors such as a bad API key fail immediately; a missing key is reported to the UI as a clear 503 message. The model is set in one place (`utils.llm.MODEL`, overridable with `ANTHROPIC_MODEL`).
 
 ### 7. JSON-first LLM schema
 
-All Claude calls instruct the model to return a strict JSON object, then each module renders it separately. Raw-Markdown responses from LLMs are brittle to parse. JSON failures trigger a second "repair" call with a `_REPAIR_SYSTEM_PROMPT` before raising. Schemas are documented as constants in each module for reference.
+All Claude calls instruct the model to return a strict JSON object, then each module renders it separately. Raw-Markdown responses from LLMs are brittle to parse. JSON failures trigger a second "repair" call (`utils.llm.parse_json_object`) before raising. Schemas are documented as constants in each module for reference.
 
 ### 8. Stub battlecards for demo — no API cost at seeding time
 
@@ -257,7 +263,7 @@ BERTopic requires at least 100 documents to produce coherent clusters. Below tha
 
 ### 11. APScheduler guarded by a module-level boolean
 
-`start_scheduler()` in `scheduler/jobs.py` checks a module-level `_scheduler_started` flag before creating the `BackgroundScheduler`. Without this guard, repeated calls (e.g. from FastAPI lifespan hooks during development hot-reload) would spawn duplicate scheduler threads and register duplicate jobs. The scheduler is also disabled entirely when `DEMO_MODE=true`.
+`start_scheduler()` in `scheduler/jobs.py` checks a module-level `_scheduler_started` flag before creating the `BackgroundScheduler`. Without this guard, repeated calls would spawn duplicate scheduler threads and register duplicate jobs. The scheduler is opt-in: the FastAPI lifespan starts it only when `ENABLE_SCHEDULER=true`, and never when `DEMO_MODE=true`. Ingestion skips reviews that are already stored, so the daily job is safe to re-run.
 
 ---
 
@@ -274,7 +280,7 @@ BERTopic requires at least 100 documents to produce coherent clusters. Below tha
 
 ```bash
 pytest tests/ -v
-# 59 tests, ~15 seconds
+# 60 tests, ~15 seconds
 ```
 
 Tests use fixture-based mock data throughout. No real API calls are made. Patch targets for lazy imports use the source module path (e.g. `outputs.slack_webhook.post_message`), not the calling module path.
@@ -289,7 +295,8 @@ Tests use fixture-based mock data throughout. No real API calls are made. Patch 
 | **BERTopic minimum** | Topic labels show as `insufficient_data` below 100 reviews per competitor. |
 | **Reddit API** | Free tier: 100 req/min, 1,000 posts/query. Sufficient for prototype, not for production monitoring. |
 | **SQLite concurrency** | Single writer. Migrate to PostgreSQL via `DATABASE_URL` for multi-user production. |
-| **No authentication** | Add an auth layer (e.g. FastAPI middleware + JWT) before any public exposure. |
+| **No authentication** | The API binds to `127.0.0.1` only. Add an auth layer (e.g. FastAPI middleware + JWT) before any wider exposure. |
+| **Live scraping falls back to fixtures** | If G2 blocks the scraper (it usually does — the page is JS-rendered), `run_ingestion.py` stores synthetic fixture reviews for that competitor instead. Check the log line before treating live-mode data as real. |
 | **weasyprint on Windows** | PDF export falls back to HTML without GTK+ binaries. True PDF works on Linux/macOS. |
 
 ---
