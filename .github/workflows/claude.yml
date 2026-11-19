@@ -33,7 +33,7 @@ jobs:
       id-token: write
       actions: read          # lets Claude read CI results on the PR
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
