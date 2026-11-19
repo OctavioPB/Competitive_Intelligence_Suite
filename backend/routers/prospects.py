@@ -1,13 +1,19 @@
 """Prospects router — hot prospect finder."""
 
+import logging
+import sqlite3
 from datetime import datetime, timedelta
+from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
 
 from backend.deps import json_safe
 from config import COMPETITOR_NAMES, SUBREDDITS
 from modules.hot_prospect_finder import enrich_lead, scan_reddit, score_urgency
+from modules.prospect_pipeline import UnknownLeadError, get_pipeline, set_stage, upsert_leads
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["prospects"])
 
 
@@ -140,10 +146,23 @@ def _rank(posts: list[dict], limit: int | None = None) -> list[dict]:
     return [_lead_to_dict(lead) for lead in enriched[:limit]]
 
 
+def _with_stages(leads: list[dict]) -> list[dict]:
+    """Save the leads to the pipeline and return them with their stage.
+
+    The scan result matters more than its bookkeeping: if the pipeline table
+    cannot be written, the leads are still returned (without a stage).
+    """
+    try:
+        return upsert_leads(leads)
+    except sqlite3.Error as exc:
+        logger.warning("Could not store leads in the pipeline: %s", exc)
+        return [{**lead, "status": None, "note": None} for lead in leads]
+
+
 @router.get("/prospects/demo")
 def get_demo_prospects():
     """Return the 5 fixture leads enriched and sorted by urgency."""
-    return _fixture_leads()
+    return _with_stages(_fixture_leads())
 
 
 @router.post("/prospects/scan")
@@ -156,7 +175,28 @@ def scan_prospects():
 
         # The same thread can match several subreddit/competitor searches.
         raw_df = raw_df.drop_duplicates(subset=["post_id", "competitor_name"])
-        return _rank(raw_df.to_dict(orient="records"), limit=20)
+        return _with_stages(_rank(raw_df.to_dict(orient="records"), limit=20))
     except RuntimeError:
         # Reddit credentials not configured — return fixture data
-        return _fixture_leads()
+        return _with_stages(_fixture_leads())
+
+
+@router.get("/prospects/pipeline")
+def pipeline(include_dismissed: bool = False):
+    """Every lead found so far, most urgent first, with a count per stage."""
+    return get_pipeline(include_dismissed=include_dismissed)
+
+
+class StageRequest(BaseModel):
+    post_url: str = Field(max_length=500)
+    status: Literal["new", "contacted", "replied", "opportunity", "dismissed"]
+    note: str | None = Field(None, max_length=2000)
+
+
+@router.post("/prospects/stage")
+def update_stage(body: StageRequest):
+    """Move a lead to another pipeline stage (and optionally set its note)."""
+    try:
+        return set_stage(body.post_url, body.status, body.note)
+    except UnknownLeadError as exc:
+        raise HTTPException(status_code=404, detail="That lead is not in the pipeline yet — scan first.") from exc

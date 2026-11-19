@@ -4,6 +4,16 @@ import { heroStyle } from '../styles/shared'
 
 const MODULES: { page: Page; title: string; desc: string }[] = [
   {
+    page: 'changes',
+    title: 'What Changed',
+    desc: 'This week vs last: reviews, battlecard, digest, alerts, pricing and hiring.',
+  },
+  {
+    page: 'compare',
+    title: 'Compare Competitors',
+    desc: 'Sentiment, pain points, churn and signals for every competitor in one view.',
+  },
+  {
     page: 'pain-radar',
     title: 'Pain Point Radar',
     desc: 'Rank competitor pain points by severity and trend direction.',

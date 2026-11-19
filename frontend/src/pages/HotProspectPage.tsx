@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from '../services/api'
-import type { CrmStatus, CrmTarget, Lead } from '../services/api'
+import type { CrmStatus, CrmTarget, Lead, LeadStage, Pipeline } from '../services/api'
 import type { Page } from '../App'
 import Eyebrow from '../components/Eyebrow'
 import Spinner from '../components/Spinner'
@@ -16,6 +16,110 @@ const CRM_LABELS: Record<CrmTarget, string> = { hubspot: 'HubSpot', salesforce: 
 const CRM_ENV_HINT: Record<CrmTarget, string> = {
   hubspot:    'Add HUBSPOT_ACCESS_TOKEN to .env to enable',
   salesforce: 'Add SALESFORCE_INSTANCE_URL and a token (or client id/secret) to .env to enable',
+}
+
+const STAGES: { id: LeadStage; label: string }[] = [
+  { id: 'new',         label: 'New' },
+  { id: 'contacted',   label: 'Contacted' },
+  { id: 'replied',     label: 'Replied' },
+  { id: 'opportunity', label: 'Opportunity' },
+  { id: 'dismissed',   label: 'Not a fit' },
+]
+
+const STAGE_COLOR: Record<LeadStage, string> = {
+  new:         'var(--mid)',
+  contacted:   'var(--primary-60)',
+  replied:     'var(--gold)',
+  opportunity: 'var(--status-green)',
+  dismissed:   'var(--mid)',
+}
+
+function StageCell({ lead, onSaved, onError }: {
+  lead:    Lead
+  onSaved: (l: Lead) => void
+  onError: (msg: string) => void
+}) {
+  const [note, setNote] = useState(lead.note ?? '')
+  const [saving, setSaving] = useState(false)
+  useEffect(() => setNote(lead.note ?? ''), [lead.note])
+
+  if (!lead.status) return <span style={{ fontFamily: 'var(--fb)', fontSize: 11, color: 'var(--mid)' }}>—</span>
+
+  function save(status: LeadStage, newNote?: string) {
+    setSaving(true)
+    api.prospects
+      .setStage(lead.post_url, status, newNote)
+      .then(onSaved)
+      .catch((err) => onError(errorMessage(err, 'Could not update the lead.')))
+      .finally(() => setSaving(false))
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 130 }}>
+      <select
+        value={lead.status}
+        disabled={saving}
+        onChange={(e) => save(e.target.value as LeadStage)}
+        aria-label={`Pipeline stage for ${lead.username}`}
+        style={{
+          fontFamily: 'var(--fb)', fontSize: 12, fontWeight: 600, color: STAGE_COLOR[lead.status],
+          border: '1px solid var(--primary-10)', borderRadius: 'var(--radius-sm)', padding: '4px 6px',
+          backgroundColor: 'var(--white)', cursor: 'pointer',
+        }}
+      >
+        {STAGES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+      </select>
+      <input
+        value={note}
+        placeholder="Add a note…"
+        maxLength={2000}
+        aria-label={`Note for ${lead.username}`}
+        onChange={(e) => setNote(e.target.value)}
+        onBlur={() => { if (note !== (lead.note ?? '')) save(lead.status as LeadStage, note) }}
+        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+        style={{
+          fontFamily: 'var(--fb)', fontSize: 11, color: 'var(--dark)', border: '1px solid var(--primary-10)',
+          borderRadius: 'var(--radius-sm)', padding: '3px 6px', backgroundColor: 'var(--light)',
+        }}
+      />
+    </div>
+  )
+}
+
+function StageFunnel({ stages, active, onSelect }: {
+  stages:   Pipeline['stages']
+  active:   LeadStage | 'all'
+  onSelect: (s: LeadStage | 'all') => void
+}) {
+  // "All" lists every lead except the ones marked as not a fit.
+  const total = stages.reduce((n, s) => n + (s.id === 'dismissed' ? 0 : s.count), 0)
+  return (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'stretch' }}>
+      {[{ id: 'all' as const, label: 'All', count: total }, ...stages].map((s, i) => {
+        const on = active === s.id
+        return (
+          <button
+            key={s.id}
+            onClick={() => onSelect(s.id)}
+            style={{
+              display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
+              padding: '10px 16px', minWidth: 110, cursor: 'pointer',
+              backgroundColor: on ? 'var(--primary)' : 'var(--white)',
+              border: `1px solid ${on ? 'var(--primary)' : 'var(--primary-10)'}`,
+              borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-card)',
+            }}
+          >
+            <span style={{ fontFamily: 'var(--fd)', fontSize: 22, fontWeight: 300, color: on ? '#fff' : 'var(--dark)' }}>
+              {s.count}
+            </span>
+            <span style={{ fontFamily: 'var(--fb)', fontSize: 9, letterSpacing: '2px', textTransform: 'uppercase', color: on ? 'rgba(255,255,255,0.75)' : 'var(--mid)' }}>
+              {i > 1 && s.id !== 'dismissed' ? '→ ' : ''}{s.label}
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 function urgencyBadgeProps(score: number) {
@@ -43,7 +147,28 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
     return () => { cancelled = true }
   }, [])
 
-  const realLeads = leads.filter((l) => !l.is_synthetic)
+  // ── Pipeline ──────────────────────────────────────────────────────────────
+  const [view, setView] = useState<'scan' | 'pipeline'>('scan')
+  const [pipeline, setPipeline] = useState<Pipeline | null>(null)
+  const [stageFilter, setStageFilter] = useState<LeadStage | 'all'>('all')
+
+  const loadPipeline = useCallback(() => {
+    return api.prospects.pipeline(true).then(setPipeline).catch(() => {/* pipeline is optional */})
+  }, [])
+  useEffect(() => { loadPipeline() }, [loadPipeline])
+
+  function handleStageSaved(updated: Lead) {
+    setLeads((list) => list.map((l) => (l.post_url === updated.post_url ? { ...l, ...updated } : l)))
+    loadPipeline()
+  }
+
+  const pipelineLeads = (pipeline?.leads ?? []).filter((l) =>
+    stageFilter === 'all' ? l.status !== 'dismissed' : l.status === stageFilter,
+  )
+  const shown = view === 'scan' ? leads : pipelineLeads
+  const pipelineTotal = pipeline?.stages.reduce((n, st) => n + st.count, 0) ?? 0
+
+  const realLeads = shown.filter((l) => !l.is_synthetic)
 
   function crmDisabledReason(target: CrmTarget): string | null {
     if (!crm) return 'Checking CRM configuration…'
@@ -87,7 +212,7 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
     setLoading(true)
     api.prospects
       .scan()
-      .then(setLeads)
+      .then((found) => { setLeads(found); setView('scan'); return loadPipeline() })
       .catch((err) => showToast(errorMessage(err, 'Reddit scan failed. Is the backend running?'), 'error'))
       .finally(() => setLoading(false))
   }
@@ -96,13 +221,13 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
     setLoading(true)
     api.prospects
       .demo()
-      .then(setLeads)
+      .then((found) => { setLeads(found); setView('scan'); return loadPipeline() })
       .catch((err) => showToast(errorMessage(err, 'Could not load demo leads.'), 'error'))
       .finally(() => setLoading(false))
   }
 
   function handleDownloadCSV() {
-    if (leads.length === 0) return
+    if (shown.length === 0) return
     const headers = [
       'username',
       'post_url',
@@ -112,8 +237,10 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
       'complaint_summary',
       'company_signals',
       'suggested_angle',
+      'stage',
+      'note',
     ]
-    const rows = leads.map((l) =>
+    const rows = shown.map((l) =>
       // Every field is scraped, user-authored text — quote and neutralise all of them.
       [
         l.username,
@@ -124,6 +251,8 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
         l.complaint_summary,
         l.company_signals.join('; '),
         l.suggested_angle,
+        l.status ?? '',
+        l.note ?? '',
       ]
         .map(csvCell)
         .join(','),
@@ -131,11 +260,11 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
     downloadTextFile('hot_prospects.csv', [headers.join(','), ...rows].join('\n'), 'text/csv')
   }
 
-  const highUrgency = leads.filter((l) => l.urgency_score >= 0.7).length
-  const medUrgency = leads.filter(
+  const highUrgency = shown.filter((l) => l.urgency_score >= 0.7).length
+  const medUrgency = shown.filter(
     (l) => l.urgency_score >= 0.4 && l.urgency_score < 0.7,
   ).length
-  const competitorCount = new Set(leads.map((l) => l.competitor_name)).size
+  const competitorCount = new Set(shown.map((l) => l.competitor_name)).size
 
   return (
     <div>
@@ -191,13 +320,42 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
             <button style={btnGold} onClick={handleDemo} disabled={loading}>
               Load Demo Leads
             </button>
+            <div style={{ flex: 1 }} />
+            {(['scan', 'pipeline'] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                style={{
+                  fontFamily: 'var(--fb)', fontSize: 11, cursor: 'pointer', padding: '4px 12px',
+                  borderRadius: 'var(--radius-sm)', border: '1px solid',
+                  fontWeight: view === v ? 600 : 400,
+                  color: view === v ? '#fff' : 'var(--link)',
+                  backgroundColor: view === v ? 'var(--primary)' : 'transparent',
+                  borderColor: view === v ? 'var(--primary)' : 'var(--primary-10)',
+                }}
+              >
+                {v === 'scan' ? 'This scan' : `Pipeline (${pipelineTotal})`}
+              </button>
+            ))}
           </div>
+
+          {view === 'pipeline' && pipeline && (
+            <StageFunnel stages={pipeline.stages} active={stageFilter} onSelect={setStageFilter} />
+          )}
 
           {toast && <Toast message={toast.msg} type={toast.type} />}
 
           {loading && <Spinner />}
 
-          {!loading && leads.length === 0 && (
+          {!loading && view === 'pipeline' && shown.length === 0 && (
+            <div style={{ fontFamily: 'var(--fb)', fontSize: 13, color: 'var(--mid)', padding: 24, backgroundColor: 'var(--white)', borderRadius: 'var(--radius-md)', border: '1px solid var(--primary-10)' }}>
+              {pipelineTotal === 0
+                ? 'The pipeline is empty. Every lead a scan finds is kept here with its stage.'
+                : 'No leads in this stage.'}
+            </div>
+          )}
+
+          {!loading && view === 'scan' && leads.length === 0 && (
             <div
               style={{
                 fontFamily: 'var(--fb)',
@@ -215,7 +373,7 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
             </div>
           )}
 
-          {!loading && leads.length > 0 && (
+          {!loading && shown.length > 0 && (
             <>
               {/* KPIs */}
               <div
@@ -226,9 +384,9 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
                 }}
               >
                 <KpiCard
-                  label="Total Prospects"
-                  value={String(leads.length)}
-                  sub="switching-intent posts"
+                  label={view === 'scan' ? 'Total Prospects' : 'In Pipeline'}
+                  value={String(shown.length)}
+                  sub={view === 'scan' ? 'switching-intent posts' : stageFilter === 'all' ? 'active leads' : `stage: ${stageFilter}`}
                 />
                 <KpiCard
                   label="High Urgency ≥0.7"
@@ -252,7 +410,7 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
 
               {/* Table */}
               <section>
-                <Eyebrow>Top Prospects</Eyebrow>
+                <Eyebrow>{view === 'scan' ? 'Top Prospects' : 'Pipeline'}</Eyebrow>
                 <h2
                   style={{
                     fontFamily: 'var(--fd)',
@@ -282,13 +440,14 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
                         <th style={{ ...thStyle, textAlign: 'center' }}>
                           Urgency
                         </th>
+                        <th style={thStyle}>Stage</th>
                         <th style={{ ...thStyle, textAlign: 'center' }}>
                           Link
                         </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {leads.slice(0, 10).map((lead, i) => {
+                      {(view === 'scan' ? shown.slice(0, 10) : shown).map((lead, i) => {
                         const badge = urgencyBadgeProps(lead.urgency_score)
                         return (
                           <tr
@@ -297,6 +456,7 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
                               backgroundColor:
                                 i % 2 === 0 ? 'var(--white)' : 'rgba(0,51,102,0.02)',
                               borderBottom: '1px solid var(--primary-10)',
+                              opacity: lead.status === 'dismissed' ? 0.55 : 1,
                             }}
                           >
                             <td style={{ padding: '12px 14px', verticalAlign: 'top' }}>
@@ -370,6 +530,9 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
                               }}
                             >
                               <StatusBadge {...badge} />
+                            </td>
+                            <td style={{ padding: '12px 14px', verticalAlign: 'top' }}>
+                              <StageCell lead={lead} onSaved={handleStageSaved} onError={(m) => showToast(m, 'error')} />
                             </td>
                             <td
                               style={{

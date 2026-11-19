@@ -7,7 +7,7 @@ architecture; this file is the short list of rules.
 ## Commands
 
 ```bash
-pytest                         # 119 tests, ~20 s — no network, no real API calls
+pytest                         # 135 tests, ~20 s — no network, no real API calls
 ruff check .                   # rules in ruff.toml (bugs only, no style)
 cd frontend && npm run build   # strict tsc + vite build
 python scripts/check_live_sources.py   # hits the real websites; not part of CI on PRs
@@ -40,5 +40,9 @@ built by `scripts/seed_demo_db.py`; databases are git-ignored.
   the others. Do not add anti-bot evasion (stealth flags, captcha solving, fake
   fingerprints) — G2 and Capterra are reported as blocked by design.
 - **Claude calls** go through `utils/llm.py` (`call_claude`, `parse_json_object`).
+- **Reading rows for JSON:** use `database.db.query_rows` (NULL stays None). `query_df`
+  turns all-NULL columns into NaN, which is truthy and breaks JSON responses.
+- **Alerts and leads keep state** in `alert_history` / `prospect_leads`; never reset a
+  status or note on re-scan, and only Slack-notify rows from `pending_notifications`.
 - **Frontend:** colours come from CSS tokens in `styles/tokens.css` (they flip in dark
   mode); shared styles in `styles/shared.ts`.

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from database.db import query_df
-from modules.market_signals import hiring_signals, pricing_change_signal
+from modules.market_signals import hiring_signal_items, latest_pricing_change
 from utils.llm import call_claude
 
 logger = logging.getLogger(__name__)
@@ -122,6 +122,10 @@ class Alert:
     evidence_summary: str
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     outreach_draft: str = ""
+    # Tells two detections of the same type apart (a different headline, a new
+    # price change). Empty for signals that are one ongoing condition, such as a
+    # sentiment drop — see modules/alert_history.py.
+    dedupe_key: str = ""
 
 
 # ── Internal signal detectors ─────────────────────────────────────────────────
@@ -160,6 +164,7 @@ def _check_negative_news(competitor: str) -> Alert | None:
                     f"News article with keywords {matched} on {row['date']}: "
                     f'"{headline}..."'
                 ),
+                dedupe_key=f"{row['date']}|{headline[:60]}",
             )
     return None
 
@@ -192,16 +197,21 @@ def _check_review_spike(competitor: str) -> Alert | None:
 
 
 def _check_pricing_change(competitor: str) -> Alert | None:
-    evidence = pricing_change_signal(competitor)
-    if evidence is None:
+    change = latest_pricing_change(competitor)
+    if change is None:
         return None
-    return Alert(trigger_type="pricing_change", competitor=competitor, evidence_summary=evidence)
+    return Alert(
+        trigger_type="pricing_change",
+        competitor=competitor,
+        evidence_summary=change["evidence"],
+        dedupe_key=f"{change['url']}|{change['date']}",
+    )
 
 
 def _check_hiring(competitor: str) -> list[Alert]:
     return [
-        Alert(trigger_type="hiring_signal", competitor=competitor, evidence_summary=evidence)
-        for evidence in hiring_signals(competitor)
+        Alert(trigger_type="hiring_signal", competitor=competitor, evidence_summary=evidence, dedupe_key=kind)
+        for kind, evidence in hiring_signal_items(competitor)
     ]
 
 

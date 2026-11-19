@@ -339,9 +339,13 @@ def _short_url(url: str) -> str:
     return re.sub(r"^https?://(www\.)?", "", url).rstrip("/")
 
 
-def pricing_change_signal(competitor: str) -> str | None:
-    """Evidence text when a monitored pricing page changed in the last 14 days
-    (counted back from the latest check, so stored sample data works too)."""
+def latest_pricing_change(competitor: str) -> dict[str, Any] | None:
+    """The most recent pricing-page change within the last 14 days (counted back
+    from the latest check, so stored sample data works too), or None.
+
+    Returns:
+        {"url", "date", "changes": [...], "evidence"}
+    """
     df = query_df(
         """
         SELECT url, first_seen, added, removed
@@ -359,31 +363,48 @@ def pricing_change_signal(competitor: str) -> str | None:
         if not changes:
             continue
         shown = "; ".join(changes[:3]) + (f"; +{len(changes) - 3} more" if len(changes) > 3 else "")
-        return f"Pricing page changed on {row.first_seen} ({_short_url(row.url)}): {shown}"
+        return {
+            "url": row.url,
+            "date": row.first_seen,
+            "changes": changes,
+            "evidence": f"Pricing page changed on {row.first_seen} ({_short_url(row.url)}): {shown}",
+        }
     return None
 
 
-def hiring_signals(competitor: str) -> list[str]:
-    """Evidence texts for a support-hiring wave and/or an integration push."""
+def pricing_change_signal(competitor: str) -> str | None:
+    """Evidence text for :func:`latest_pricing_change`, or None."""
+    change = latest_pricing_change(competitor)
+    return change["evidence"] if change else None
+
+
+def hiring_signal_items(competitor: str) -> list[tuple[str, str]]:
+    """(kind, evidence) for a support-hiring wave ("support") and/or an
+    integration push ("integrations")."""
     overview = get_hiring_overview(competitor)
     new_total = overview["new_roles"]
     if not new_total:
         return []
 
     window = overview["window_days"]
-    found: list[str] = []
+    found: list[tuple[str, str]] = []
     support = next((c["new"] for c in overview["by_category"] if c["category"] == "support"), 0)
     if support >= SUPPORT_MIN_ROLES and support / new_total >= SUPPORT_MIN_SHARE:
-        found.append(
+        found.append(("support", (
             f"{support} of {new_total} roles opened in the last {window} days are customer support / "
             f"success ({support / new_total:.0%}) — a sign their support is under strain."
-        )
+        )))
 
     n_integration = overview["integration_new"]
     if n_integration >= INTEGRATION_MIN_ROLES:
         titles = "; ".join(r["title"] for r in overview["integration_roles"][:3])
-        found.append(
+        found.append(("integrations", (
             f"{n_integration} engineering roles on integrations / APIs opened in the last "
             f"{window} days (e.g. {titles}) — they are investing where customers feel gaps."
-        )
+        )))
     return found
+
+
+def hiring_signals(competitor: str) -> list[str]:
+    """Evidence texts for a support-hiring wave and/or an integration push."""
+    return [evidence for _, evidence in hiring_signal_items(competitor)]

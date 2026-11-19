@@ -604,6 +604,13 @@ def _seed_market_signals() -> None:
     logger.info("Market signals seeded: %s", seed_market_signals())
 
 
+def _seed_history() -> None:
+    """An earlier battlecard version and two weekly digests, so "What changed" has a baseline."""
+    from ingestion.history_fixtures import seed_history
+
+    logger.info("History seeded: %s", seed_history())
+
+
 def _write_battlecard_stubs() -> None:
     """Write pre-built battlecard JSON stubs to outputs/battlecards/."""
     from modules.battlecard_generator import _BATTLECARD_DIR, battlecard_to_markdown
@@ -654,6 +661,7 @@ def main() -> None:
     _run_pipeline()
     _seed_market_signals()
     _write_battlecard_stubs()
+    _seed_history()
     _print_summary()
 
     logger.info("Done. Run: .\\demo.ps1 to launch the React + FastAPI stack.")

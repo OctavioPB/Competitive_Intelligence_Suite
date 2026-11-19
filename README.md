@@ -23,6 +23,15 @@ RivalSense is a Competitive Intelligence Suite that scrapes public reviews, soci
 | M09 | **Outreach Composer** | Generates personalised email, LinkedIn DM, and cold call bullets from a prospect's complaint |
 | M10 | **Market Signals** | Watches competitor pricing pages for price changes and their job boards for support or integration hiring waves |
 
+Daily-workflow views on top of the modules:
+
+| View | What it does |
+|------|-------------|
+| **What Changed** | This period vs the one before for one competitor: review volume, sentiment and rating, new / rising / fading complaint topics, battlecard version diff, digest diff, new alerts, pricing changes and new roles — summarised as a few highlights |
+| **Compare** | Every competitor side by side: monthly sentiment overlay, 30-day sentiment and rating, top pain points, cached churn reasons, active alerts, last price change, support hiring share |
+| **Alert history** | Alerts are stored with a status (new / seen / dismissed); an ongoing signal stays one alert and reaches Slack once |
+| **Prospect pipeline** | Every lead found is kept with a stage (new → contacted → replied → opportunity, or not a fit) and a note |
+
 ---
 
 ## Architecture
@@ -140,6 +149,7 @@ rivalsense/
 │   ├── fixtures.py            # Deterministic synthetic review generator
 │   ├── run_signals.py         # Pricing pages + job boards → market-signal tables
 │   ├── signal_fixtures.py     # Sample pricing change + hiring waves for the demo DB
+│   ├── history_fixtures.py    # Earlier battlecard version + two weekly digests for the demo
 │   ├── browser.py             # Static fetch → headless Chromium fallback, anti-bot wall detection
 │   ├── structured_reviews.py  # schema.org JSON-LD review parser (G2, Capterra)
 │   ├── scraper_g2.py
@@ -161,6 +171,10 @@ rivalsense/
 ├── modules/
 │   ├── review_evidence.py         # Reviews behind a pain point / month + data-provenance stats
 │   ├── market_signals.py          # M10 — pricing diffs, role classification, hiring signals
+│   ├── alert_history.py           # Stored alerts with status; de-duplicates ongoing signals
+│   ├── prospect_pipeline.py       # Leads kept across scans with a pipeline stage and note
+│   ├── change_tracker.py          # What changed: review windows, battlecard + digest diffs
+│   ├── competitor_compare.py      # All competitors side by side
 │   ├── pain_point_radar.py        # M01
 │   ├── sentiment_timeline.py      # M02
 │   ├── feature_wish_miner.py      # M03
@@ -197,7 +211,7 @@ rivalsense/
 │   └── email_digest.py        # SendGrid weekly digest
 │
 ├── scheduler/
-│   └── jobs.py                # APScheduler: daily scrape, market signals, alert check, weekly digest
+│   └── jobs.py                # APScheduler: daily scrape, market signals, alert check (new alerts only), weekly digest
 │
 ├── scripts/
 │   └── seed_demo_db.py        # Generates rivalsense_demo.db
@@ -207,13 +221,15 @@ rivalsense/
 │   └── embeddings.py          # Process-wide sentence-transformer singleton
 │
 ├── database/
-│   ├── schema.sql             # reviews, processed_reviews, digests, pricing_snapshots, job_postings
+│   ├── schema.sql             # reviews, processed_reviews, digests, pricing_snapshots, job_postings,
+│   │                          # alert_history, prospect_leads
 │   └── db.py                  # SQLite helpers (query_df, execute, executemany)
 │
 └── tests/
     ├── test_features.py        # 13 tests (data provenance, topic names, evidence)
     ├── test_integrations.py    # 15 tests (battlecard export, HubSpot / Salesforce sync)
     ├── test_signals.py         # 31 tests (pricing diffs, job boards, review sources, new alerts)
+    ├── test_workflow.py        # 16 tests (alert history, Slack de-dup, pipeline, what changed, compare)
     ├── test_pipeline.py        # 20 tests
     └── test_modules.py         # 40 tests (all modules)
 ```
@@ -319,11 +335,15 @@ Live ingestion falls back to fixture reviews when a scraper is blocked, so every
 
 G2 (DataDome) and Capterra (Cloudflare) serve a challenge page to both plain requests and headless Chromium. `browser.bot_wall` names the protection, the scraper raises `ScrapingError("… blocked by DataDome")`, and ingestion carries on: every source is independent, and fixtures are used only when *all* live sources return nothing. The browser deliberately does not disguise automation. For rated reviews that load reliably, the App Store's official RSS feed is used instead.
 
-### 16. BERTopic minimum data requirement
+### 16. Alerts and leads have memory
+
+`check_triggers` recomputes alerts from the data on every scan, which is right for detection but wrong for a workflow: the scheduler used to post the same sentiment drop to Slack every day it lasted. `alert_history` now stores each detection. A detection with the same competitor, type and `dedupe_key` (a headline, a price-change date, "support" vs "integrations" hiring) seen within the last 7 days updates the existing row; anything else is a new alert. The daily job sends only rows never notified — and marks nothing as notified while `SLACK_WEBHOOK_URL` is unset, so configuring Slack later still delivers them. Statuses (new / seen / dismissed) survive re-scans; a dismissed alert comes back only as a new episode after a week without the signal. Prospect leads work the same way, keyed by post URL: a re-scan refreshes urgency and summary but never the stage or note a rep set.
+
+### 17. BERTopic minimum data requirement
 
 BERTopic requires at least 100 documents to produce coherent clusters. Below that, `train_topics()` logs a warning and all reviews receive `topic_label='insufficient_data'`. The fixture generator produces ~126 reviews per competitor to stay above this threshold.
 
-### 17. APScheduler guarded by a module-level boolean
+### 18. APScheduler guarded by a module-level boolean
 
 `start_scheduler()` in `scheduler/jobs.py` checks a module-level `_scheduler_started` flag before creating the `BackgroundScheduler`. Without this guard, repeated calls would spawn duplicate scheduler threads and register duplicate jobs. The scheduler is opt-in: the FastAPI lifespan starts it only when `ENABLE_SCHEDULER=true`, and never when `DEMO_MODE=true`. Ingestion skips reviews that are already stored, so the daily job is safe to re-run.
 
@@ -342,7 +362,7 @@ BERTopic requires at least 100 documents to produce coherent clusters. Below tha
 
 ```bash
 pytest tests/ -v
-# 119 tests, ~20 seconds
+# 135 tests, ~20 seconds
 ```
 
 Tests use fixture-based mock data throughout. No real API calls are made, and every test runs against its own empty SQLite file (`tests/conftest.py`), so results never depend on your local database. Patch targets for lazy imports use the source module path (e.g. `outputs.slack_webhook.post_message`), not the calling module path.
