@@ -435,4 +435,10 @@ The two Claude workflows need an `ANTHROPIC_API_KEY` repository secret (*Setting
 
 ---
 
+## License
+
+Proprietary — all rights reserved. Using, copying, modifying or distributing RivalSense requires prior written approval from the copyright holder; see [LICENSE](LICENSE). Third-party libraries keep their own licenses.
+
+---
+
 *RivalSense v0.2.0 · OPB AI Mastery Lab*
