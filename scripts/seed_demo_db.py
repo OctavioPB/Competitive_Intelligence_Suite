@@ -454,8 +454,9 @@ _STUB_BATTLECARDS: dict[str, dict] = {
 # ── Database helpers ──────────────────────────────────────────────────────────
 
 _INSERT_REVIEW_SQL = """
-    INSERT INTO reviews (source, competitor_name, review_text, rating, date, author_id, helpful_count)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO reviews
+        (source, competitor_name, review_text, rating, date, author_id, helpful_count, is_synthetic)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 
@@ -471,6 +472,7 @@ def _insert_reviews(rows: list[dict]) -> None:
             r.get("date", ""),
             r.get("author_id", ""),
             r.get("helpful_count", 0),
+            1,  # every demo row is sample data
         )
         for r in rows
     ]

@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '../services/api'
-import type { Lead } from '../services/api'
+import type { CrmStatus, CrmTarget, Lead } from '../services/api'
 import type { Page } from '../App'
 import Eyebrow from '../components/Eyebrow'
 import Spinner from '../components/Spinner'
@@ -11,6 +11,12 @@ import KpiCard from '../components/KpiCard'
 import StatusBadge from '../components/StatusBadge'
 import { useAppStore } from '../stores/appStore'
 import { heroStyle, btnGold, btnNavy, thStyle } from '../styles/shared'
+
+const CRM_LABELS: Record<CrmTarget, string> = { hubspot: 'HubSpot', salesforce: 'Salesforce' }
+const CRM_ENV_HINT: Record<CrmTarget, string> = {
+  hubspot:    'Add HUBSPOT_ACCESS_TOKEN to .env to enable',
+  salesforce: 'Add SALESFORCE_INSTANCE_URL and a token (or client id/secret) to .env to enable',
+}
 
 function urgencyBadgeProps(score: number) {
   if (score >= 0.7)
@@ -25,6 +31,48 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(false)
   const { toast, showToast } = useToast()
+  const [crm, setCrm] = useState<CrmStatus | null>(null)
+  const [pushing, setPushing] = useState<CrmTarget | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api.crm
+      .status()
+      .then((s) => { if (!cancelled) setCrm(s) })
+      .catch(() => {/* buttons stay disabled */})
+    return () => { cancelled = true }
+  }, [])
+
+  const realLeads = leads.filter((l) => !l.is_synthetic)
+
+  function crmDisabledReason(target: CrmTarget): string | null {
+    if (!crm) return 'Checking CRM configuration…'
+    if (crm.demo_mode) return 'Disabled in demo mode: these are sample leads'
+    if (!crm[target]) return CRM_ENV_HINT[target]
+    if (realLeads.length === 0) return 'Only sample leads loaded: nothing to send'
+    return null
+  }
+
+  function handlePush(target: CrmTarget) {
+    const name = CRM_LABELS[target]
+    // Creates records in an external system, so ask first.
+    if (!window.confirm(`Create up to ${realLeads.length} lead(s) in ${name}? Leads already there are skipped.`)) return
+    setPushing(target)
+    api.crm
+      .push(target, realLeads)
+      .then((r) => {
+        const parts = [`${r.created} created`, `${r.exists} already in ${name}`]
+        if (r.skipped) parts.push(`${r.skipped} sample skipped`)
+        if (r.failed) {
+          const firstError = r.results.find((x) => x.status === 'failed')?.error ?? 'unknown error'
+          showToast(`${name}: ${parts.join(', ')}, ${r.failed} failed (${firstError})`, 'error')
+        } else {
+          showToast(`${name}: ${parts.join(', ')}.`, 'success')
+        }
+      })
+      .catch((err) => showToast(errorMessage(err, `Could not send leads to ${name}.`), 'error'))
+      .finally(() => setPushing(null))
+  }
 
   function handleCompose(lead: Lead) {
     setOutreachPrefill({
@@ -262,6 +310,11 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
                               >
                                 {lead.username}
                               </div>
+                              {lead.is_synthetic && (
+                                <div style={{ margin: '4px 0' }}>
+                                  <StatusBadge label="Sample" color="var(--status-orange)" bg="var(--status-orange-bg)" />
+                                </div>
+                              )}
                               <div
                                 style={{
                                   fontFamily: 'var(--fb)',
@@ -365,8 +418,23 @@ export default function HotProspectPage({ onNavigate }: { onNavigate?: (p: Page)
                 </div>
               </section>
 
-              {/* Download */}
-              <div>
+              {/* Export */}
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                {(['hubspot', 'salesforce'] as const).map((target) => {
+                  const reason = crmDisabledReason(target)
+                  const disabled = reason !== null || pushing !== null
+                  return (
+                    <button
+                      key={target}
+                      style={{ ...btnGold, opacity: disabled ? 0.45 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}
+                      onClick={() => handlePush(target)}
+                      disabled={disabled}
+                      title={reason ?? `Create these leads in ${CRM_LABELS[target]}`}
+                    >
+                      {pushing === target ? 'Sending…' : `Send to ${CRM_LABELS[target]}`}
+                    </button>
+                  )
+                })}
                 <button style={btnNavy} onClick={handleDownloadCSV}>
                   Download CSV
                 </button>

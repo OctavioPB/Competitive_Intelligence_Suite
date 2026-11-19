@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS reviews (
     date            TEXT,                           -- ISO 8601 (YYYY-MM-DD)
     author_id       TEXT,
     helpful_count   INTEGER DEFAULT 0,
+    is_synthetic    INTEGER NOT NULL DEFAULT 0,     -- 1 = fixture / sample data, not scraped
     created_at      TEXT    DEFAULT (datetime('now'))
 );
 
@@ -28,6 +29,7 @@ CREATE TABLE IF NOT EXISTS processed_reviews (
     sentiment_delta REAL,                           -- change vs prior 30-day avg
     entities        TEXT,                           -- JSON: [{text, label}, ...]
     wish_phrases    TEXT,                           -- JSON: ["I wish ...", ...]
+    is_synthetic    INTEGER NOT NULL DEFAULT 0,     -- copied from reviews.is_synthetic
     created_at      TEXT    DEFAULT (datetime('now'))
 );
 

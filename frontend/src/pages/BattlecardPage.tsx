@@ -6,7 +6,7 @@ import Eyebrow from '../components/Eyebrow'
 import Spinner from '../components/Spinner'
 import Toast from '../components/Toast'
 import { errorMessage, useToast } from '../hooks/useToast'
-import { downloadTextFile } from '../utils/download'
+import { downloadBlob, downloadTextFile, printHtml } from '../utils/download'
 import CompetitorSelect from '../components/CompetitorSelect'
 import { heroStyle, btnGold, btnNavy, thStyle } from '../styles/shared'
 
@@ -42,6 +42,7 @@ export default function BattlecardPage() {
   const [card, setCard] = useState<Battlecard | null>(null)
   const [loading, setLoading] = useState(false)
   const { toast, showToast } = useToast()
+  const [exporting, setExporting] = useState(false)
 
   function handleGenerate() {
     setLoading(true)
@@ -79,6 +80,24 @@ export default function BattlecardPage() {
       buildMarkdown(card),
       'text/markdown',
     )
+  }
+
+  function handleExportPdf() {
+    if (!card) return
+    setExporting(true)
+    api.battlecard
+      .export(card.competitor)
+      .then(async ({ blob, mimeType, filename }) => {
+        if (mimeType === 'application/pdf') {
+          downloadBlob(filename, blob)
+          return
+        }
+        // Server has no PDF engine: print the same branded page from the browser.
+        printHtml(await blob.text())
+        showToast('Choose "Save as PDF" in the print dialog to keep a copy.', 'success')
+      })
+      .catch((err) => showToast(errorMessage(err, 'PDF export failed.'), 'error'))
+      .finally(() => setExporting(false))
   }
 
   return (
@@ -393,7 +412,10 @@ export default function BattlecardPage() {
               )}
 
               {/* Download */}
-              <div>
+              <div style={{ display: 'flex', gap: 12 }}>
+                <button style={btnGold} onClick={handleExportPdf} disabled={exporting}>
+                  {exporting ? 'Preparing PDF…' : 'Download PDF'}
+                </button>
                 <button style={btnNavy} onClick={handleDownload}>
                   Download Markdown
                 </button>

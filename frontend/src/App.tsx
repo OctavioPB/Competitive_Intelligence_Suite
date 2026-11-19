@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import Nav from './components/Nav'
 import Footer from './components/Footer'
+import DataSourceBanner from './components/DataSourceBanner'
 import { useTheme } from './hooks/useTheme'
 import HomePage from './pages/HomePage'
 import PainPointRadarPage from './pages/PainPointRadarPage'
@@ -66,6 +67,7 @@ export default function App() {
         theme={theme}
         onToggleTheme={toggleTheme}
       />
+      <DataSourceBanner />
       <main style={{ flex: 1 }}>
         {renderPage(page, setPage)}
       </main>

@@ -20,8 +20,10 @@ logger = logging.getLogger(__name__)
 # Insert only reviews not already stored, so re-running ingestion (e.g. the daily
 # scheduler job) never duplicates rows and inflates mention counts.
 _INSERT_SQL = """
-    INSERT INTO reviews (source, competitor_name, review_text, rating, date, author_id, helpful_count)
-    SELECT :source, :competitor_name, :review_text, :rating, :date, :author_id, :helpful_count
+    INSERT INTO reviews
+        (source, competitor_name, review_text, rating, date, author_id, helpful_count, is_synthetic)
+    SELECT :source, :competitor_name, :review_text, :rating, :date, :author_id, :helpful_count,
+           :is_synthetic
     WHERE NOT EXISTS (
         SELECT 1 FROM reviews
         WHERE competitor_name = :competitor_name
@@ -51,6 +53,8 @@ def _store_reviews(rows: list[dict[str, Any]]) -> int:
             "date": r.get("date", ""),
             "author_id": r.get("author_id", ""),
             "helpful_count": r.get("helpful_count", 0),
+            # Fixtures set this; it is how the UI tells sample data from scraped data.
+            "is_synthetic": int(bool(r.get("is_synthetic", 0))),
         }
         for r in rows
     ]

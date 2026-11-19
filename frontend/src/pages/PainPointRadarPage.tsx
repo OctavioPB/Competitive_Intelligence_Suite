@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { KeyboardEvent } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { api } from '../services/api'
 import type { PainPoint } from '../services/api'
@@ -7,6 +8,7 @@ import Spinner from '../components/Spinner'
 import KpiCard from '../components/KpiCard'
 import CompetitorSelect from '../components/CompetitorSelect'
 import StatusBadge from '../components/StatusBadge'
+import EvidencePanel from '../components/EvidencePanel'
 import { heroStyle, thStyle } from '../styles/shared'
 
 const BAR_COLORS = ['#003366', '#1a4d80', '#336699', '#99bbdd', '#c8982a']
@@ -88,6 +90,21 @@ export default function PainPointRadarPage() {
   const { competitor } = useAppStore()
   const [points, setPoints] = useState<PainPoint[]>([])
   const [loading, setLoading] = useState(false)
+  const [selectedTopic, setSelectedTopic] = useState<string | null>(null)
+
+  // A topic name only means something for the competitor it came from.
+  useEffect(() => { setSelectedTopic(null) }, [competitor])
+
+  function toggleTopic(topic: string) {
+    setSelectedTopic((current) => (current === topic ? null : topic))
+  }
+
+  function onRowKey(e: KeyboardEvent, topic: string) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      toggleTopic(topic)
+    }
+  }
 
   useEffect(() => {
     // Guard against out-of-order responses when the selection changes quickly.
@@ -252,6 +269,9 @@ export default function PainPointRadarPage() {
                 >
                   Pain point <em style={{ fontStyle: 'italic', color: 'var(--gold)' }}>breakdown</em>
                 </h2>
+                <p style={{ fontFamily: 'var(--fb)', fontSize: 12, color: 'var(--mid)', margin: '-12px 0 16px' }}>
+                  Click a pain point to read the reviews behind it.
+                </p>
                 <div
                   style={{
                     overflowX: 'auto',
@@ -275,13 +295,21 @@ export default function PainPointRadarPage() {
                       {points.map((p, i) => {
                         const sev = severityBadgeProps(p.avg_severity)
                         const trend = trendBadgeProps(p.trend_direction)
+                        const selected = selectedTopic === p.topic_label
                         return (
                           <tr
                             key={p.topic_label}
+                            tabIndex={0}
+                            aria-selected={selected}
+                            onClick={() => toggleTopic(p.topic_label)}
+                            onKeyDown={(e) => onRowKey(e, p.topic_label)}
                             style={{
-                              backgroundColor:
-                                i % 2 === 0 ? 'var(--white)' : 'rgba(0,51,102,0.02)',
+                              backgroundColor: selected
+                                ? 'rgba(200,152,42,0.10)'
+                                : i % 2 === 0 ? 'var(--white)' : 'rgba(0,51,102,0.02)',
                               borderBottom: '1px solid var(--primary-10)',
+                              boxShadow: selected ? 'inset 3px 0 0 var(--gold)' : undefined,
+                              cursor: 'pointer',
                             }}
                           >
                             <td
@@ -320,6 +348,16 @@ export default function PainPointRadarPage() {
                   </table>
                 </div>
               </section>
+
+              {selectedTopic && (
+                <EvidencePanel
+                  key={`${competitor}|${selectedTopic}`}
+                  competitor={competitor}
+                  query={{ topic: selectedTopic, sort: 'negative' }}
+                  title={selectedTopic.replace(/_/g, ' ')}
+                  onClose={() => setSelectedTopic(null)}
+                />
+              )}
             </>
           )}
         </div>

@@ -221,6 +221,7 @@ def _generate_reviews_for_competitor(
                         "date": review_date.strftime("%Y-%m-%d"),
                         "author_id": f"fixture_user_{review_num:04d}",
                         "helpful_count": rng.randint(0, 50),
+                        "is_synthetic": 1,
                     }
                 )
 
@@ -258,6 +259,7 @@ def _generate_news_articles_for_competitor(
                 "date": article_date.strftime("%Y-%m-%d"),
                 "author_id": f"NewsSource_{i}",
                 "helpful_count": 0,
+                "is_synthetic": 1,
             }
         )
     return articles

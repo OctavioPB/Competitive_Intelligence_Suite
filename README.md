@@ -107,6 +107,11 @@ DIGEST_EMAIL=...         # recipient for scheduled digest
 ANTHROPIC_MODEL=...      # override the Claude model for every module
 ENABLE_SCHEDULER=false   # run daily scrape / alerts / weekly digest inside the API process
 CORS_ORIGINS=...         # extra browser origins allowed to call the API directly
+
+# CRM sync (optional) — "Send to HubSpot / Salesforce" on the Prospects page
+HUBSPOT_ACCESS_TOKEN=...       # private app; scopes crm.objects.contacts.read + write
+SALESFORCE_INSTANCE_URL=...    # https://yourcompany.my.salesforce.com
+SALESFORCE_ACCESS_TOKEN=...    # or SALESFORCE_CLIENT_ID + SALESFORCE_CLIENT_SECRET (client-credentials flow)
 DATABASE_URL=rivalsense.db
 
 # Toggle demo mode (uses rivalsense_demo.db, skips APScheduler)
@@ -132,10 +137,12 @@ rivalsense/
 ├── pipeline/
 │   ├── run_pipeline.py        # CLI orchestrator
 │   ├── topic_model.py         # BERTopic training + inference
+│   ├── topic_labeler.py       # Readable topic names (Claude, or keyword fallback)
 │   ├── sentiment.py           # VADER + sentence-transformer blend
 │   └── entity_extractor.py   # spaCy NER
 │
 ├── modules/
+│   ├── review_evidence.py         # Reviews behind a pain point / month + data-provenance stats
 │   ├── pain_point_radar.py        # M01
 │   ├── sentiment_timeline.py      # M02
 │   ├── feature_wish_miner.py      # M03
@@ -165,7 +172,9 @@ rivalsense/
 │   └── vite.config.ts         # Proxies /api/* → FastAPI :8000
 │
 ├── outputs/
-│   ├── crm_export.py          # CSV + JSON with CRM-canonical columns
+│   ├── crm_export.py          # CSV + JSON with CRM-canonical columns (scripts)
+│   ├── crm_sync.py            # Push leads to HubSpot (contact + note) / Salesforce (Lead)
+│   ├── pdf_export.py          # Battlecard → PDF (weasyprint) or print-ready HTML
 │   ├── slack_webhook.py       # Block Kit payload helper
 │   └── email_digest.py        # SendGrid weekly digest
 │
@@ -184,6 +193,8 @@ rivalsense/
 │   └── db.py                  # SQLite helpers (query_df, execute, executemany)
 │
 └── tests/
+    ├── test_features.py        # 13 tests (data provenance, topic names, evidence)
+    ├── test_integrations.py    # 15 tests (battlecard export, HubSpot / Salesforce sync)
     ├── test_pipeline.py        # 20 tests
     └── test_modules.py         # 40 tests (all modules)
 ```
@@ -257,11 +268,33 @@ The `sentiment_delta` column in `processed_reviews` stores each review's score m
 - Threshold: `avg_delta < -0.5`
 - To make the demo DB fire this alert, `seed_demo_db.py` inserts 15 strongly positive reviews 30–40 days before the bad week to create a high baseline.
 
-### 10. BERTopic minimum data requirement
+### 10. Topic names are written for humans
+
+BERTopic names a cluster after its raw top tokens (`connectors_the_getting_than`). After topic assignment the pipeline renames every cluster in `pipeline/topic_labeler.py`:
+
+- With `ANTHROPIC_API_KEY`: one Claude call per competitor turns each cluster's keywords and sample reviews into a 2–4 word name ("Per-Seat Pricing").
+- Without it: the cluster's most distinctive keywords and adjacent-word phrases, ignoring stop words, generic review vocabulary, the competitor's name and anything seen in under 20% of the cluster's reviews ("Critical issue / Premium support").
+
+Names are de-duplicated because modules group by `topic_label`. To rename an existing database without retraining: `python pipeline/run_pipeline.py --relabel`.
+
+### 11. Synthetic data is always labelled
+
+Live ingestion falls back to fixture reviews when a scraper is blocked, so every row carries `is_synthetic` (set by the fixture generator and the demo seeder; older databases are back-filled by `init_schema()`). `GET /api/meta/data-status` reports the synthetic share per competitor, the UI shows a banner whenever any data is synthetic, and evidence lists tag each sample review.
+
+### 12. Every aggregate links to its evidence
+
+`GET /api/reviews?competitor=&topic=&month=&sort=&limit=` returns the reviews behind a number. In the UI, clicking a Pain Point Radar row or a Sentiment Timeline month opens them, most negative first.
+
+### 13. Exports go where the sales team works
+
+- **Battlecard PDF.** `GET /api/battlecard/export` renders the cached battlecard. With weasyprint (Linux/macOS, or Windows + GTK) the server returns a PDF; otherwise it returns the same branded page as print-ready HTML and the UI opens the browser's print dialog ("Save as PDF"), so the button works on every machine.
+- **CRM sync.** `POST /api/crm/push` creates the selected Prospects in HubSpot (a lead-stage Contact plus a Note with complaint, urgency and suggested angle) or Salesforce (a Lead). Reddit leads have no e-mail, so the post URL — stored in the standard Website field — is the de-duplication key: re-sending a lead never creates a second record. Sample leads are never sent: the push is refused in demo mode, and the server drops any lead whose URL belongs to the built-in fixtures, whatever flag the browser sends.
+
+### 14. BERTopic minimum data requirement
 
 BERTopic requires at least 100 documents to produce coherent clusters. Below that, `train_topics()` logs a warning and all reviews receive `topic_label='insufficient_data'`. The fixture generator produces ~126 reviews per competitor to stay above this threshold.
 
-### 11. APScheduler guarded by a module-level boolean
+### 15. APScheduler guarded by a module-level boolean
 
 `start_scheduler()` in `scheduler/jobs.py` checks a module-level `_scheduler_started` flag before creating the `BackgroundScheduler`. Without this guard, repeated calls would spawn duplicate scheduler threads and register duplicate jobs. The scheduler is opt-in: the FastAPI lifespan starts it only when `ENABLE_SCHEDULER=true`, and never when `DEMO_MODE=true`. Ingestion skips reviews that are already stored, so the daily job is safe to re-run.
 
@@ -280,7 +313,7 @@ BERTopic requires at least 100 documents to produce coherent clusters. Below tha
 
 ```bash
 pytest tests/ -v
-# 60 tests, ~15 seconds
+# 88 tests, ~15 seconds
 ```
 
 Tests use fixture-based mock data throughout. No real API calls are made. Patch targets for lazy imports use the source module path (e.g. `outputs.slack_webhook.post_message`), not the calling module path.
@@ -297,7 +330,8 @@ Tests use fixture-based mock data throughout. No real API calls are made. Patch 
 | **SQLite concurrency** | Single writer. Migrate to PostgreSQL via `DATABASE_URL` for multi-user production. |
 | **No authentication** | The API binds to `127.0.0.1` only. Add an auth layer (e.g. FastAPI middleware + JWT) before any wider exposure. |
 | **Live scraping falls back to fixtures** | If G2 blocks the scraper (it usually does — the page is JS-rendered), `run_ingestion.py` stores synthetic fixture reviews for that competitor instead. Check the log line before treating live-mode data as real. |
-| **weasyprint on Windows** | PDF export falls back to HTML without GTK+ binaries. True PDF works on Linux/macOS. |
+| **weasyprint on Windows** | Without GTK the server cannot render PDFs; the Download PDF button falls back to the browser's print dialog. |
+| **CRM sync tested against mocks only** | HubSpot and Salesforce calls are covered by unit tests with a fake HTTP session; run one push against a sandbox portal / org before relying on it. |
 
 ---
 
