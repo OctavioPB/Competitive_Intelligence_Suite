@@ -15,6 +15,7 @@ const GROUPS: NavGroupDef[] = [
       { id: 'sentiment',  label: 'Sentiment'    },
       { id: 'wish-miner', label: 'Wish Miner'   },
       { id: 'churn',      label: 'Churn Intel'  },
+      { id: 'signals',    label: 'Market Signals' },
       { id: 'digest',     label: 'Digest'       },
     ],
   },

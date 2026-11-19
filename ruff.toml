@@ -1,0 +1,7 @@
+# Lint for real bugs only (syntax errors, undefined names, unused imports/variables);
+# formatting and style are not enforced. Run: ruff check .
+target-version = "py311"
+extend-exclude = ["frontend"]
+
+[lint]
+select = ["E9", "F"]

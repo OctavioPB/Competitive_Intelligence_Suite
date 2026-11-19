@@ -79,7 +79,48 @@ def executemany(sql: str, params_list: list[tuple]) -> int:
         return conn.executemany(sql, params_list).rowcount
 
 
+# Author ids written by ingestion/fixtures.py and scripts/seed_demo_db.py. Used
+# once, to flag sample rows in databases created before is_synthetic existed.
+_SYNTHETIC_AUTHOR_PATTERNS = (
+    "fixture_user_%",
+    "NewsSource_%",
+    "baseline_boost_%",
+    "badweek_%",
+    "newsapi_outage_%",
+)
+
+
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Bring databases created by older schema versions up to date.
+
+    CREATE TABLE IF NOT EXISTS never alters an existing table, so columns added
+    later are applied here. Each step is idempotent.
+    """
+    if "is_synthetic" not in _columns(conn, "reviews"):
+        conn.execute("ALTER TABLE reviews ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0")
+        where = " OR ".join("author_id LIKE ?" for _ in _SYNTHETIC_AUTHOR_PATTERNS)
+        conn.execute(f"UPDATE reviews SET is_synthetic = 1 WHERE {where}", _SYNTHETIC_AUTHOR_PATTERNS)
+
+    if "is_synthetic" not in _columns(conn, "processed_reviews"):
+        conn.execute(
+            "ALTER TABLE processed_reviews ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0"
+        )
+        conn.execute(
+            """
+            UPDATE processed_reviews SET is_synthetic = (
+                SELECT r.is_synthetic FROM reviews r WHERE r.id = processed_reviews.review_id
+            )
+            WHERE review_id IN (SELECT id FROM reviews WHERE is_synthetic = 1)
+            """
+        )
+
+
 def init_schema() -> None:
-    """Create all tables and indexes from schema.sql if they do not exist."""
+    """Create all tables and indexes from schema.sql, then apply migrations."""
     with closing(get_conn()) as conn, conn:
         conn.executescript(_SCHEMA_PATH.read_text(encoding="utf-8"))
+        _migrate(conn)

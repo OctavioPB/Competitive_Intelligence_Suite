@@ -18,12 +18,15 @@ from backend.routers import (
     alerts,
     battlecard,
     churn,
+    crm,
     digest,
     meta,
     outreach,
     pain_points,
     prospects,
+    reviews,
     sentiment,
+    signals,
     wishes,
 )
 from database.db import init_schema
@@ -77,7 +80,7 @@ async def _llm_api_error(_: Request, exc: anthropic.APIError):
 
 for _router in (
     meta, pain_points, sentiment, wishes, battlecard,
-    alerts, prospects, churn, digest, outreach,
+    alerts, prospects, churn, digest, outreach, reviews, crm, signals,
 ):
     app.include_router(_router.router, prefix="/api")
 

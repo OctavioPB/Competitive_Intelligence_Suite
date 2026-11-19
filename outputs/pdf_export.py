@@ -7,14 +7,15 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # Attempt to import weasyprint once at module load — determines which export path is used.
+# On Windows it also needs the GTK runtime; without it the import raises OSError.
 try:
     from weasyprint import HTML as _WeasyHTML  # type: ignore[import]
     _WEASYPRINT_AVAILABLE = True
 except (ImportError, OSError):
     _WEASYPRINT_AVAILABLE = False
-    logger.warning(
-        "weasyprint is not installed. PDF export will fall back to HTML. "
-        "Install weasyprint (+ GTK+ on Windows) for true PDF output."
+    logger.info(
+        "weasyprint unavailable — battlecard export falls back to print-ready HTML. "
+        "Install weasyprint (+ GTK on Windows) for server-side PDF output."
     )
 
 _BRAND_CSS = """
@@ -128,6 +129,15 @@ h2 {
   line-height: 1.5;
 }
 .gaps-table tr:last-child td { border-bottom: none; }
+@page { size: A4; margin: 14mm; }
+
+@media print {
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { background: #fff; padding: 0; max-width: none; }
+  .objection, .gaps-table tr, .pitch-box { break-inside: avoid; }
+  h2 { break-after: avoid; }
+}
+
 .badge-covered {
   display: inline-block;
   background: #E0F7EF;
@@ -222,6 +232,12 @@ def battlecard_to_html(card: dict) -> str:
 {gaps_table}
 </body>
 </html>"""
+
+
+def export_filename(competitor: str, mime_type: str) -> str:
+    """File name for a battlecard export, e.g. 'battlecard_salesforce.pdf'."""
+    slug = "".join(c if c.isalnum() else "_" for c in competitor.lower()).strip("_") or "competitor"
+    return f"battlecard_{slug}.{'pdf' if mime_type == 'application/pdf' else 'html'}"
 
 
 def generate_pdf_bytes(card: dict) -> tuple[bytes, str]:

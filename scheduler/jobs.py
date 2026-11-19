@@ -23,6 +23,22 @@ def job_scrape_and_process() -> None:
     logger.info("Scheduled job: scrape and process complete.")
 
 
+def job_market_signals() -> None:
+    """Daily job: re-check competitor pricing pages and job boards."""
+    from config import COMPETITORS
+    from ingestion.run_signals import check_competitor
+
+    logger.info("Scheduled job: checking pricing pages and job boards ...")
+    for competitor in COMPETITORS:
+        try:
+            report = check_competitor(competitor)
+            for error in report["errors"]:
+                logger.warning("[%s] %s", competitor["name"], error)
+        except Exception as exc:  # noqa: BLE001 — one competitor must not stop the rest
+            logger.error("Market signals failed for %s: %s", competitor["name"], exc)
+    logger.info("Scheduled job: market signals complete.")
+
+
 def job_check_alerts() -> None:
     """Daily job: detect trigger signals and fire Slack alerts for new ones."""
     from config import COMPETITOR_NAMES
@@ -96,9 +112,13 @@ def start_scheduler() -> None:
 
     scheduler = BackgroundScheduler()
     scheduler.add_job(job_scrape_and_process, "cron", hour=2, minute=0, id="daily_scrape")
+    scheduler.add_job(job_market_signals, "cron", hour=2, minute=40, id="daily_market_signals")
     scheduler.add_job(job_check_alerts, "cron", hour=3, minute=0, id="daily_alerts")
     scheduler.add_job(job_send_digest, "cron", day_of_week="mon", hour=7, minute=0, id="weekly_digest")
     scheduler.start()
 
     _scheduler_started = True
-    logger.info("APScheduler started: daily_scrape@02:00, daily_alerts@03:00, weekly_digest@Mon07:00.")
+    logger.info(
+        "APScheduler started: daily_scrape@02:00, daily_market_signals@02:40, "
+        "daily_alerts@03:00, weekly_digest@Mon07:00."
+    )

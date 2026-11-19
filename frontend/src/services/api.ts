@@ -2,7 +2,7 @@
 
 const BASE = '/api'
 
-async function request<T>(path: string, opts?: RequestInit): Promise<T> {
+async function fetchOk(path: string, opts?: RequestInit): Promise<Response> {
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
     headers: {
@@ -22,7 +22,27 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
     }
     throw new Error(detail || `Request failed (${res.status})`)
   }
+  return res
+}
+
+async function request<T>(path: string, opts?: RequestInit): Promise<T> {
+  const res = await fetchOk(path, opts)
   return res.json() as Promise<T>
+}
+
+export interface FileDownload {
+  blob:     Blob
+  mimeType: string
+  filename: string
+}
+
+/** Binary download; the file name comes from the server's Content-Disposition. */
+async function download(path: string, fallbackName: string): Promise<FileDownload> {
+  const res = await fetchOk(path)
+  const disposition = res.headers.get('Content-Disposition') ?? ''
+  const filename = /filename="?([^";]+)"?/.exec(disposition)?.[1] ?? fallbackName
+  const mimeType = (res.headers.get('Content-Type') ?? '').split(';')[0].trim()
+  return { blob: await res.blob(), mimeType, filename }
 }
 
 // ── TypeScript interfaces ─────────────────────────────────────────────────────
@@ -71,12 +91,79 @@ export interface Battlecard {
   feature_gaps: FeatureGap[]
 }
 
+export type AlertType =
+  | 'sentiment_drop'
+  | 'negative_news'
+  | 'review_spike'
+  | 'pricing_change'
+  | 'hiring_signal'
+
 export interface Alert {
-  trigger_type: 'sentiment_drop' | 'negative_news' | 'review_spike'
+  trigger_type: AlertType
   competitor: string
   evidence_summary: string
   timestamp: string
   outreach_draft: string | null
+}
+
+// ── Market signals ──────────────────────────────────────────────────────────
+
+export interface PricingChange {
+  date:    string
+  changes: string[]
+  added:   string[]
+  removed: string[]
+}
+
+export interface PricingPage {
+  url:             string
+  last_checked:    string
+  monitored_since: string
+  versions:        number
+  price_points:    string[]
+  last_change:     PricingChange | null
+  is_synthetic:    boolean
+}
+
+export interface PricingOverview {
+  competitor:     string
+  pages:          PricingPage[]
+  monitored_urls: string[]
+}
+
+export type RoleCategory = 'support' | 'engineering' | 'sales' | 'product' | 'marketing' | 'other'
+
+export interface JobRole {
+  title:       string
+  department:  string | null
+  location:    string | null
+  url:         string | null
+  category:    RoleCategory
+  posted_date: string
+}
+
+export interface HiringOverview {
+  competitor:        string
+  crawled_on:        string | null
+  source:            string | null
+  window_days:       number
+  open_roles:        number
+  new_roles:         number
+  by_category:       { category: RoleCategory; label: string; open: number; new: number }[]
+  integration_new:   number
+  integration_roles: JobRole[]
+  recent_roles:      JobRole[]
+  is_synthetic:      boolean
+  board:             { provider: string; board: string; recent_only: boolean } | null
+  category_labels:   Record<RoleCategory, string>
+}
+
+export interface SignalsRefreshReport {
+  competitor: string
+  pricing:    { url: string; status: 'first' | 'unchanged' | 'changed'; price_points: number; rendered: boolean; changes: string[] }[]
+  jobs:       { source: string; seen: number; new: number } | null
+  errors:     string[]
+  headless_browser: boolean
 }
 
 export interface ChurnBucket {
@@ -139,6 +226,70 @@ export interface Lead {
   complaint_summary: string
   company_signals: string[]
   suggested_angle: string
+  is_synthetic: boolean
+}
+
+export type CrmTarget = 'hubspot' | 'salesforce'
+
+export interface CrmStatus {
+  demo_mode:  boolean
+  hubspot:    boolean
+  salesforce: boolean
+}
+
+export interface CrmLeadResult {
+  username:   string
+  status:     'created' | 'exists' | 'skipped' | 'failed'
+  record_id:  string | null
+  record_url: string | null
+  error:      string | null
+}
+
+export interface CrmPushResult {
+  target:  CrmTarget
+  created: number
+  exists:  number
+  skipped: number
+  failed:  number
+  results: CrmLeadResult[]
+}
+
+export interface ReviewEvidence {
+  id:              number
+  source:          string
+  date:            string | null
+  rating:          number | null
+  sentiment_score: number
+  review_text:     string
+  topic_label:     string | null
+  is_synthetic:    boolean
+}
+
+export interface ReviewList {
+  competitor: string
+  topic:      string | null
+  month:      string | null
+  total:      number
+  reviews:    ReviewEvidence[]
+}
+
+export interface ReviewQuery {
+  topic?: string
+  month?: string
+  sort?:  'negative' | 'positive' | 'recent'
+  limit?: number
+}
+
+export interface CompetitorDataStatus {
+  name:        string
+  reviews:     number
+  synthetic:   number
+  latest_date: string | null
+}
+
+export interface DataStatus {
+  demo_mode:   boolean
+  competitors: CompetitorDataStatus[]
 }
 
 // ── API object ────────────────────────────────────────────────────────────────
@@ -149,6 +300,18 @@ export const api = {
       request<{ competitors: string[] }>('/meta/competitors'),
     ownFeatures: () =>
       request<{ features: string[] }>('/meta/own-features'),
+    dataStatus: () => request<DataStatus>('/meta/data-status'),
+  },
+
+  reviews: {
+    list: (competitor: string, query: ReviewQuery = {}) => {
+      const params = new URLSearchParams({ competitor })
+      if (query.topic) params.set('topic', query.topic)
+      if (query.month) params.set('month', query.month)
+      if (query.sort) params.set('sort', query.sort)
+      if (query.limit) params.set('limit', String(query.limit))
+      return request<ReviewList>(`/reviews?${params}`)
+    },
   },
 
   painPoints: {
@@ -177,10 +340,27 @@ export const api = {
       request<Battlecard | null>(
         `/battlecard?competitor=${encodeURIComponent(competitor)}`,
       ),
+    export: (competitor: string) =>
+      download(
+        `/battlecard/export?competitor=${encodeURIComponent(competitor)}`,
+        `battlecard_${competitor.toLowerCase()}.pdf`,
+      ),
     generate: (competitor: string) =>
       request<Battlecard>('/battlecard', {
         method: 'POST',
         body: JSON.stringify({ competitor }),
+      }),
+  },
+
+  signals: {
+    pricing: (competitor: string) =>
+      request<PricingOverview>(`/signals/pricing?competitor=${encodeURIComponent(competitor)}`),
+    hiring: (competitor: string) =>
+      request<HiringOverview>(`/signals/hiring?competitor=${encodeURIComponent(competitor)}`),
+    refresh: (competitor: string) =>
+      request<SignalsRefreshReport>('/signals/refresh', {
+        method: 'POST',
+        body:   JSON.stringify({ competitor }),
       }),
   },
 
@@ -200,6 +380,15 @@ export const api = {
   prospects: {
     demo: () => request<Lead[]>('/prospects/demo'),
     scan: () => request<Lead[]>('/prospects/scan', { method: 'POST' }),
+  },
+
+  crm: {
+    status: () => request<CrmStatus>('/crm/status'),
+    push: (target: CrmTarget, leads: Lead[]) =>
+      request<CrmPushResult>('/crm/push', {
+        method: 'POST',
+        body:   JSON.stringify({ target, leads }),
+      }),
   },
 
   churn: {

@@ -39,6 +39,11 @@ const MODULES: { page: Page; title: string; desc: string }[] = [
     desc: 'See why users leave each competitor, bucketed with proof quotes.',
   },
   {
+    page: 'signals',
+    title: 'Market Signals',
+    desc: 'Pricing-page changes and hiring waves from competitor job boards.',
+  },
+  {
     page: 'digest',
     title: 'Intelligence Digest',
     desc: 'One-page weekly executive brief across every competitor.',

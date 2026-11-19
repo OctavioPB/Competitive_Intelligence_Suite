@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import Nav from './components/Nav'
 import Footer from './components/Footer'
+import DataSourceBanner from './components/DataSourceBanner'
 import { useTheme } from './hooks/useTheme'
 import HomePage from './pages/HomePage'
 import PainPointRadarPage from './pages/PainPointRadarPage'
@@ -13,6 +14,7 @@ import InfoPage from './pages/InfoPage'
 import ChurnIntelligencePage from './pages/ChurnIntelligencePage'
 import DigestPage from './pages/DigestPage'
 import OutreachComposerPage from './pages/OutreachComposerPage'
+import MarketSignalsPage from './pages/MarketSignalsPage'
 
 export type Page =
   | 'home'
@@ -26,6 +28,7 @@ export type Page =
   | 'churn'
   | 'digest'
   | 'outreach'
+  | 'signals'
 
 function renderPage(page: Page, onNavigate: (p: Page) => void) {
   switch (page) {
@@ -51,6 +54,8 @@ function renderPage(page: Page, onNavigate: (p: Page) => void) {
       return <DigestPage />
     case 'outreach':
       return <OutreachComposerPage />
+    case 'signals':
+      return <MarketSignalsPage />
   }
 }
 
@@ -66,6 +71,7 @@ export default function App() {
         theme={theme}
         onToggleTheme={toggleTheme}
       />
+      <DataSourceBanner />
       <main style={{ flex: 1 }}>
         {renderPage(page, setPage)}
       </main>

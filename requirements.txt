@@ -23,6 +23,9 @@ praw>=7.7.0,<8.0.0
 requests>=2.31.0,<3.0.0
 beautifulsoup4>=4.12.0,<5.0.0
 newsapi-python>=0.2.7
+# Headless Chromium for JavaScript-rendered pages (HubSpot pricing, G2). Optional at
+# runtime — scrapers fall back to plain HTTP. After install: playwright install chromium
+playwright>=1.40.0,<2.0.0
 
 # ── Scheduling ───────────────────────────────────────────────────────────────
 APScheduler>=3.10.0,<4.0.0
@@ -33,3 +36,5 @@ weasyprint>=62.0
 
 # ── Testing ──────────────────────────────────────────────────────────────────
 pytest>=8.0.0
+httpx>=0.27.0          # FastAPI TestClient (API tests)
+ruff>=0.9.0,<1.0.0     # lint, same rules as CI (ruff.toml)

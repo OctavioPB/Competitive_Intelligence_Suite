@@ -12,19 +12,20 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pandas as pd
 
 from config import COMPETITORS, CompetitorConfig
-from database.db import executemany, query_df
+from database.db import executemany, init_schema, query_df
 from pipeline.entity_extractor import extract_entities_batch
 from pipeline.sentiment import (
     compute_sentiment_delta,
     extract_wish_phrases,
     score_sentiment_batch,
 )
+from pipeline.topic_labeler import label_topics, relabel_competitor
 from pipeline.topic_model import assign_topics, embed_texts, train_topics
 
 logger = logging.getLogger(__name__)
 
 _SELECT_REVIEWS = """
-    SELECT id, source, competitor_name, review_text, rating, date
+    SELECT id, source, competitor_name, review_text, rating, date, is_synthetic
     FROM reviews
     WHERE competitor_name = ?
     ORDER BY date ASC
@@ -35,15 +36,16 @@ _UPSERT_SQL = """
     INSERT INTO processed_reviews
         (review_id, source, competitor_name, review_text, rating, date,
          topic_cluster, topic_label, sentiment_score, sentiment_delta,
-         entities, wish_phrases)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         entities, wish_phrases, is_synthetic)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(review_id) DO UPDATE SET
         topic_cluster  = excluded.topic_cluster,
         topic_label    = excluded.topic_label,
         sentiment_score = excluded.sentiment_score,
         sentiment_delta = excluded.sentiment_delta,
         entities       = excluded.entities,
-        wish_phrases   = excluded.wish_phrases
+        wish_phrases   = excluded.wish_phrases,
+        is_synthetic   = excluded.is_synthetic
 """
 
 
@@ -78,6 +80,11 @@ def run_for_competitor(competitor: CompetitorConfig) -> int:
     # ── Batch: topic modeling ──────────────────────────────────────────────
     train_topics(name, texts, embeddings)
     topic_assignments = assign_topics(texts, name, embeddings)
+
+    # ── Readable topic names (Claude, or distinctive keywords offline) ─────
+    names = label_topics(name, texts, [t["topic_cluster"] for t in topic_assignments])
+    for t in topic_assignments:
+        t["topic_label"] = names.get(t["topic_cluster"], t["topic_label"])
 
     # ── Batch: NER entity extraction ──────────────────────────────────────
     logger.info("[%s] Extracting entities ...", name)
@@ -114,6 +121,7 @@ def run_for_competitor(competitor: CompetitorConfig) -> int:
             float(delta),
             json.dumps(entities),
             json.dumps(wishes),
+            int(rev.is_synthetic or 0),
         )
         for rev, topic, score, delta, entities, wishes in zip(
             df.itertuples(index=False),
@@ -136,6 +144,7 @@ def main() -> None:
     Usage:
         python pipeline/run_pipeline.py                        # all competitors
         python pipeline/run_pipeline.py --competitor HubSpot   # single competitor
+        python pipeline/run_pipeline.py --relabel              # only rename stored topics
     """
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
@@ -146,7 +155,15 @@ def main() -> None:
         default=None,
         help="Competitor name to process (default: all)",
     )
+    parser.add_argument(
+        "--relabel",
+        action="store_true",
+        help="Only regenerate topic names for already-processed reviews (no retraining)",
+    )
     args = parser.parse_args()
+
+    # Older databases lack columns the pipeline now writes.
+    init_schema()
 
     targets = (
         [c for c in COMPETITORS if c["name"] == args.competitor]
@@ -157,6 +174,11 @@ def main() -> None:
     if not targets:
         logger.error("No competitor matched '%s'. Check config.COMPETITORS.", args.competitor)
         sys.exit(1)
+
+    if args.relabel:
+        renamed = sum(relabel_competitor(c["name"]) for c in targets)
+        logger.info("Relabel complete. Topics renamed: %d", renamed)
+        return
 
     total = 0
     for competitor in targets:

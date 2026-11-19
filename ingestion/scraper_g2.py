@@ -1,11 +1,22 @@
-"""Scrape product reviews from G2 for a given competitor."""
+"""Scrape product reviews from G2 for a given competitor.
+
+G2 renders reviews with JavaScript and sits behind DataDome, so a plain HTTP
+request almost never sees a review. The scraper therefore:
+
+1. fetches the page as plain HTML, then — if Playwright is installed — in
+   headless Chromium (``ingestion.browser.fetch_html``);
+2. reads reviews from schema.org JSON-LD first, CSS selectors second;
+3. when DataDome serves a challenge, raises ``ScrapingError`` naming it.
+
+The browser does not try to hide that it is automated: if G2 blocks it, the
+source is reported as blocked and ingestion carries on with the others.
+"""
 
 import logging
 import random
 import time
 from typing import Any
 
-import requests
 from bs4 import BeautifulSoup
 
 from config import CompetitorConfig
@@ -13,39 +24,66 @@ from config import CompetitorConfig
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://www.g2.com/products/{slug}/reviews"
-_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
-    "Accept-Language": "en-US,en;q=0.9",
-}
+_CARD_SELECTOR = ".paper.paper--white.paper--box"
 _REQUEST_DELAY_MIN = 1.0
 _REQUEST_DELAY_MAX = 2.0
 
 
 class ScrapingError(Exception):
-    """Raised when a scraping attempt fails and callers should fall back to fixtures."""
+    """Raised when a scraping attempt fails and callers should fall back to other sources."""
 
 
-def scrape_reviews(competitor: CompetitorConfig, max_pages: int = 10) -> list[dict[str, Any]]:
+def _css_reviews(html: str) -> list[dict[str, Any]]:
+    """Legacy selector-based parser — kept as a fallback for pages without JSON-LD."""
+    soup = BeautifulSoup(html, "html.parser")
+    rows = []
+    for card in soup.select(_CARD_SELECTOR):
+        text_el = card.select_one(".formatted-text")
+        if not text_el:
+            continue
+        rating_el = card.select_one("[data-rating]")
+        try:
+            rating = float(rating_el["data-rating"]) if rating_el else None
+        except (KeyError, ValueError):
+            rating = None
+        date_el = card.select_one("time")
+        author_el = card.select_one(".user-name")
+        helpful_el = card.select_one(".helpful-count")
+        try:
+            helpful = int(helpful_el.get_text(strip=True)) if helpful_el else 0
+        except ValueError:
+            helpful = 0
+        rows.append({
+            "text": text_el.get_text(separator=" ", strip=True),
+            "rating": rating,
+            "date": date_el.get("datetime", "")[:10] if date_el else "",
+            "author": author_el.get_text(strip=True) if author_el else "",
+            "helpful_count": helpful,
+        })
+    return rows
+
+
+def parse_reviews(html: str) -> list[dict[str, Any]]:
+    """Reviews on one G2 page as {text, rating, date, author[, helpful_count]}."""
+    from ingestion.structured_reviews import jsonld_reviews
+
+    return jsonld_reviews(html) or _css_reviews(html)
+
+
+def scrape_reviews(competitor: CompetitorConfig, max_pages: int = 5) -> list[dict[str, Any]]:
     """Scrape reviews from G2 for a single competitor.
 
-    Respects robots.txt intent by including a randomised 1–2 s delay between
-    page requests.
-
-    Args:
-        competitor: Competitor config dict from config.COMPETITORS.
-        max_pages: Maximum number of paginated result pages to fetch.
+    Waits a randomised 1–2 s between pages.
 
     Returns:
         List of review dicts with keys:
         source, competitor_name, review_text, rating, date, author_id, helpful_count.
 
     Raises:
-        ScrapingError: If the first request is blocked or returns no reviews.
+        ScrapingError: The first page is blocked or shows no reviews.
     """
+    from ingestion.browser import FetchError, fetch_html
+
     slug = competitor["g2_slug"]
     name = competitor["name"]
     reviews: list[dict[str, Any]] = []
@@ -53,63 +91,22 @@ def scrape_reviews(competitor: CompetitorConfig, max_pages: int = 10) -> list[di
     for page in range(1, max_pages + 1):
         url = f"{_BASE_URL.format(slug=slug)}?page={page}"
         try:
-            resp = requests.get(url, headers=_HEADERS, timeout=15)
-        except requests.RequestException as exc:
-            raise ScrapingError(f"G2 request failed for {name}: {exc}") from exc
-
-        if resp.status_code in (403, 429):
-            raise ScrapingError(
-                f"G2 returned {resp.status_code} for {name} — likely rate-limited."
-            )
-        if resp.status_code != 200:
-            logger.warning("G2 returned %s for %s page %d", resp.status_code, name, page)
-            break
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        cards = soup.select(".paper.paper--white.paper--box")
-
-        if not cards:
-            # G2 may render reviews via JavaScript — no cards on first page means blocked
+            fetched = fetch_html(url, lambda html: bool(parse_reviews(html)), wait_for=_CARD_SELECTOR)
+        except FetchError as exc:
             if page == 1:
-                raise ScrapingError(
-                    f"G2 returned no review cards for {name} — page may be JS-rendered."
-                )
+                raise ScrapingError(f"G2 gave no reviews for {name}: {exc}") from exc
             break
 
-        for card in cards:
-            text_el = card.select_one(".formatted-text")
-            if not text_el:
-                continue
-            review_text = text_el.get_text(separator=" ", strip=True)
-
-            # Rating: G2 uses data-rating or star icons
-            rating_el = card.select_one("[data-rating]")
-            rating = float(rating_el["data-rating"]) if rating_el else None
-
-            date_el = card.select_one("time")
-            date = date_el.get("datetime", "")[:10] if date_el else ""
-
-            author_el = card.select_one(".user-name")
-            author_id = author_el.get_text(strip=True) if author_el else ""
-
-            helpful_el = card.select_one(".helpful-count")
-            try:
-                helpful_count = int(helpful_el.get_text(strip=True)) if helpful_el else 0
-            except ValueError:
-                helpful_count = 0
-
-            reviews.append(
-                {
-                    "source": "g2",
-                    "competitor_name": name,
-                    "review_text": review_text,
-                    "rating": rating,
-                    "date": date,
-                    "author_id": author_id,
-                    "helpful_count": helpful_count,
-                }
-            )
-
+        for r in parse_reviews(fetched.html):
+            reviews.append({
+                "source": "g2",
+                "competitor_name": name,
+                "review_text": r["text"],
+                "rating": r["rating"],
+                "date": r["date"],
+                "author_id": r["author"],
+                "helpful_count": r.get("helpful_count", 0),
+            })
         time.sleep(random.uniform(_REQUEST_DELAY_MIN, _REQUEST_DELAY_MAX))
 
     if not reviews:

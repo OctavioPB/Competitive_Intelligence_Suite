@@ -6,9 +6,18 @@ import Eyebrow from '../components/Eyebrow'
 import Spinner from '../components/Spinner'
 import KpiCard from '../components/KpiCard'
 import CompetitorSelect from '../components/CompetitorSelect'
+import EvidencePanel from '../components/EvidencePanel'
 import { heroStyle, thStyle } from '../styles/shared'
 
-function SentimentChart({ timeline }: { timeline: TimelineEntry[] }) {
+function SentimentChart({
+  timeline,
+  selectedMonth,
+  onSelectMonth,
+}: {
+  timeline: TimelineEntry[]
+  selectedMonth: string | null
+  onSelectMonth: (month: string) => void
+}) {
   if (timeline.length === 0) return null
 
   const W = 720
@@ -76,9 +85,33 @@ function SentimentChart({ timeline }: { timeline: TimelineEntry[] }) {
           key={e.month}
           cx={toX(i)}
           cy={toY(e.avg_sentiment)}
-          r={3}
+          r={selectedMonth === e.month ? 5 : 3}
           fill={e.avg_sentiment >= 0 ? '#27b97c' : '#e03448'}
+          style={{ stroke: selectedMonth === e.month ? 'var(--gold)' : 'none', strokeWidth: 2 }}
         />
+      ))}
+      {/* Hit areas: much larger than the dots so months are easy to click */}
+      {timeline.map((e, i) => (
+        <circle
+          key={`hit-${e.month}`}
+          cx={toX(i)}
+          cy={toY(e.avg_sentiment)}
+          r={11}
+          fill="transparent"
+          role="button"
+          tabIndex={0}
+          aria-label={`Show reviews from ${e.month}`}
+          style={{ cursor: 'pointer', outline: 'none' }}
+          onClick={() => onSelectMonth(e.month)}
+          onKeyDown={(ev) => {
+            if (ev.key === 'Enter' || ev.key === ' ') {
+              ev.preventDefault()
+              onSelectMonth(e.month)
+            }
+          }}
+        >
+          <title>{`${e.month}: ${e.avg_sentiment.toFixed(2)} avg · ${e.review_count} reviews`}</title>
+        </circle>
       ))}
       {/* Event stars */}
       {timeline.map((e, i) =>
@@ -120,6 +153,9 @@ export default function SentimentTimelinePage() {
   const [months, setMonths] = useState(18)
   const [timeline, setTimeline] = useState<TimelineEntry[]>([])
   const [loading, setLoading] = useState(false)
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
+
+  useEffect(() => { setSelectedMonth(null) }, [competitor])
 
   useEffect(() => {
     // Guard against out-of-order responses when the selection changes quickly.
@@ -323,9 +359,26 @@ export default function SentimentTimelinePage() {
                     border: '1px solid var(--primary-10)',
                   }}
                 >
-                  <SentimentChart timeline={timeline} />
+                  <SentimentChart
+                    timeline={timeline}
+                    selectedMonth={selectedMonth}
+                    onSelectMonth={(m) => setSelectedMonth((cur) => (cur === m ? null : m))}
+                  />
+                  <p style={{ fontFamily: 'var(--fb)', fontSize: 12, color: 'var(--mid)', marginTop: 8 }}>
+                    Click a month to read its most negative reviews.
+                  </p>
                 </div>
               </section>
+
+              {selectedMonth && (
+                <EvidencePanel
+                  key={`${competitor}|${selectedMonth}`}
+                  competitor={competitor}
+                  query={{ month: selectedMonth, sort: 'negative' }}
+                  title={`Reviews from ${selectedMonth}`}
+                  onClose={() => setSelectedMonth(null)}
+                />
+              )}
 
               {/* News events table */}
               {timeline.some((e) => e.top_event) && (

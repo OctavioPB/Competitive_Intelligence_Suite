@@ -1,0 +1,38 @@
+name: Live sources
+
+# Scrapers break silently when a website changes. Once a week, hit every real
+# source once (pricing pages, job boards, App Store; G2 is informational) and
+# fail — which emails the repo owner — if a source that should work returns nothing.
+on:
+  schedule:
+    - cron: "17 6 * * 1"     # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-sources
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check live data sources
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Only the scraping stack: the check imports no NLP / database code.
+      - name: Install scraping dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "requests>=2.31,<3" "beautifulsoup4>=4.12,<5" "playwright>=1.40,<2"
+          playwright install --with-deps chromium
+
+      - name: Check sources
+        run: python scripts/check_live_sources.py

@@ -60,6 +60,39 @@ def _demo_alerts() -> list[Alert]:
             ),
         ),
         Alert(
+            trigger_type="pricing_change",
+            competitor="HubSpot",
+            evidence_summary=(
+                "Pricing page changed on 2025-12-29 (hubspot.com/pricing/sales): "
+                "Starter: $15 /mo/seat → $20 /mo/seat; Professional: $90 /mo/seat → $100 /mo/seat; "
+                "New Onboarding fee (Professional): $1,500"
+            ),
+            timestamp=ts,
+            outreach_draft=(
+                "Hi [Name],\n\n"
+                "HubSpot just raised Sales Hub Professional to $100 per seat and added an "
+                "onboarding fee. If your renewal is coming up, it's a good moment to compare — "
+                "we'd be happy to put together a side-by-side on total cost.\n\n"
+                "Worth 15 minutes?\n\nBest,"
+            ),
+        ),
+        Alert(
+            trigger_type="hiring_signal",
+            competitor="Salesforce",
+            evidence_summary=(
+                "11 of 20 roles opened in the last 30 days are customer support / success (55%) "
+                "— a sign their support is under strain."
+            ),
+            timestamp=ts,
+            outreach_draft=(
+                "Hi [Name],\n\n"
+                "Salesforce is hiring support staff at an unusual pace right now — usually a sign "
+                "ticket queues are long. If your team is waiting on answers, we'd be glad to show "
+                "how fast our support responds.\n\n"
+                "Open to a quick call?\n\nBest,"
+            ),
+        ),
+        Alert(
             trigger_type="review_spike",
             competitor="HubSpot",
             evidence_summary="42 reviews in last 7 days vs expected 18.0 (2× spike threshold)",
@@ -86,7 +119,7 @@ class OutreachRequest(BaseModel):
 
 @router.get("/alerts/demo")
 def get_demo_alerts():
-    """Return the hardcoded bad-week demo scenario (3 alerts)."""
+    """Return the hardcoded bad-week demo scenario."""
     return [_alert_to_dict(a) for a in _demo_alerts()]
 
 

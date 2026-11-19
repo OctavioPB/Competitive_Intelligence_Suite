@@ -3,10 +3,9 @@
 import json
 import sqlite3
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pandas as pd
-import pytest
 
 SCHEMA_PATH = Path(__file__).parent.parent / "database" / "schema.sql"
 
@@ -78,27 +77,27 @@ _FIXTURE_REVIEWS = [
     {
         "id": 1, "source": "g2", "competitor_name": "Salesforce",
         "review_text": "Salesforce is absolutely terrible. The pricing is outrageous and support is useless.",
-        "rating": 1.0, "date": "2025-06-01",
+        "rating": 1.0, "date": "2025-06-01", "is_synthetic": 0,
     },
     {
         "id": 2, "source": "g2", "competitor_name": "Salesforce",
         "review_text": "Salesforce is a great product. I love the reporting and automation features.",
-        "rating": 5.0, "date": "2025-07-15",
+        "rating": 5.0, "date": "2025-07-15", "is_synthetic": 0,
     },
     {
         "id": 3, "source": "trustpilot", "competitor_name": "Salesforce",
         "review_text": "Average CRM. Does the job but the interface is confusing. I wish they had a better mobile app.",
-        "rating": 3.0, "date": "2025-08-20",
+        "rating": 3.0, "date": "2025-08-20", "is_synthetic": 0,
     },
     {
         "id": 4, "source": "reddit", "competitor_name": "Salesforce",
         "review_text": "Switching away from Salesforce after 3 years. Too expensive and the learning curve never ends.",
-        "rating": None, "date": "2025-09-10",
+        "rating": None, "date": "2025-09-10", "is_synthetic": 0,
     },
     {
         "id": 5, "source": "newsapi", "competitor_name": "Salesforce",
         "review_text": "Salesforce reports record revenue despite customer complaints about pricing and complexity.",
-        "rating": None, "date": "2025-10-05",
+        "rating": None, "date": "2025-10-05", "is_synthetic": 0,
     },
 ]
 
@@ -272,8 +271,9 @@ class TestPipelineIntegration:
 
         # Each row must have 12 fields matching the UPSERT SQL
         for row in captured_rows:
-            assert len(row) == 12, f"Expected 12 fields per row, got {len(row)}"
-            review_id, source, comp, text, rating, date, tc, tl, ss, sd, ents, wishes = row
+            assert len(row) == 13, f"Expected 13 fields per row, got {len(row)}"
+            review_id, source, comp, text, rating, date, tc, tl, ss, sd, ents, wishes, syn = row
+            assert syn in (0, 1), "is_synthetic must be 0/1"
             assert isinstance(ss, float), "sentiment_score must be float"
             assert -1.0 <= ss <= 1.0, "sentiment_score must be in [-1, 1]"
             assert isinstance(json.loads(ents), list), "entities must be JSON list"
