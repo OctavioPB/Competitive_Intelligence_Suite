@@ -365,6 +365,18 @@ pytest
 cd frontend && npm run build
 ```
 
+### Other workflows and automation
+
+| File | When | What it does |
+|------|------|--------------|
+| `workflows/live-sources.yml` | Mondays + on demand | Runs `scripts/check_live_sources.py` against the real sites (pricing pages, job boards, App Store; G2 informational). Fails — and GitHub emails the owner — when a source that should work returns nothing, i.e. a scraper broke because a site changed. |
+| `workflows/codeql.yml` | PRs to `master`, pushes, weekly | GitHub CodeQL security analysis for Python and TypeScript (results under *Security → Code scanning*). |
+| `workflows/claude-code-review.yml` | Every non-draft PR from this repo | Claude reviews the diff and posts inline comments plus a summary, following the rules in `CLAUDE.md`. |
+| `workflows/claude.yml` | `@claude` in an issue, PR comment or review | Claude answers, reviews or implements the request (on a `claude/…` branch). Only owners, members and collaborators can trigger it. |
+| `dependabot.yml` | Weekly (Actions monthly) | Grouped minor/patch update PRs for pip, npm and GitHub Actions. |
+
+The two Claude workflows need an `ANTHROPIC_API_KEY` repository secret (*Settings → Secrets and variables → Actions*) and the Claude GitHub app installed on the repo — `/install-github-app` in Claude Code does both. Until the secret exists the PR review is skipped with a notice (no red check), and `@claude` mentions do nothing useful.
+
 ---
 
 ## Known Limitations
