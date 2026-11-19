@@ -21,7 +21,7 @@ torch>=2.1.0
 # ── Scraping ─────────────────────────────────────────────────────────────────
 praw>=8.0.3,<9.0.0
 requests>=2.31.0,<3.0.0
-beautifulsoup4>=4.12.0,<5.0.0
+beautifulsoup4>=4.15.0,<5.0.0
 newsapi-python>=0.2.7
 # Headless Chromium for JavaScript-rendered pages (HubSpot pricing, G2). Optional at
 # runtime — scrapers fall back to plain HTTP. After install: playwright install chromium
