@@ -114,8 +114,11 @@ def _send(session: requests.Session, method: str, url: str, **kwargs) -> request
 class CRMClient(Protocol):
     name: str
 
-    def find_existing(self, post_url: str) -> str | None: ...
-    def create(self, lead: dict) -> tuple[str, str | None]: ...
+    def find_existing(self, post_url: str) -> str | None:
+        """Id of the record already holding this post URL, or None."""
+
+    def create(self, lead: dict) -> tuple[str, str | None]:
+        """Create the lead; return (record_id, record_url)."""
 
 
 # ── HubSpot ───────────────────────────────────────────────────────────────────

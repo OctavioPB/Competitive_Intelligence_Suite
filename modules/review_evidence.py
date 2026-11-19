@@ -2,6 +2,8 @@
 
 from datetime import date
 
+import pandas as pd
+
 from database.db import query_df
 
 _SORTS = {
@@ -83,7 +85,7 @@ def get_reviews(
             "id": int(r.id),
             "source": str(r.source),
             "date": r.date if isinstance(r.date, str) else None,
-            "rating": None if r.rating is None or r.rating != r.rating else float(r.rating),
+            "rating": None if pd.isna(r.rating) else float(r.rating),
             "sentiment_score": float(r.sentiment_score),
             "review_text": str(r.review_text),
             "topic_label": r.topic_label if isinstance(r.topic_label, str) else None,

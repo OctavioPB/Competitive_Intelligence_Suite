@@ -33,10 +33,14 @@ USER_AGENT = (
 _HEADERS = {"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9"}
 _RENDER_SETTLE_MS = 6000
 
+# Challenge scripts loaded from the protection vendor's own host.
+_DATADOME_HOST = re.compile(r"//(?:[a-z0-9-]+\.)*captcha-delivery\.com\b")
+_CLOUDFLARE_HOST = re.compile(r"//challenges\.cloudflare\.com\b")
+
 # (name, test) pairs, checked in order. Each test sees status, lower-cased HTML and title.
 _WALLS: tuple[tuple[str, Callable[[int, str, str], bool]], ...] = (
-    ("DataDome", lambda s, h, t: "captcha-delivery.com" in h or ("datadome" in h and s in (401, 403))),
-    ("Cloudflare", lambda s, h, t: t.startswith("just a moment") or "challenges.cloudflare.com" in h
+    ("DataDome", lambda s, h, t: bool(_DATADOME_HOST.search(h)) or ("datadome" in h and s in (401, 403))),
+    ("Cloudflare", lambda s, h, t: t.startswith("just a moment") or bool(_CLOUDFLARE_HOST.search(h))
      or "cf-chl-" in h),
     ("Akamai", lambda s, h, t: t == "access denied" and "reference #" in h),
     ("PerimeterX", lambda s, h, t: "px-captcha" in h or ("perimeterx" in h and s in (401, 403))),
