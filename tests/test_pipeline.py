@@ -3,10 +3,9 @@
 import json
 import sqlite3
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pandas as pd
-import pytest
 
 SCHEMA_PATH = Path(__file__).parent.parent / "database" / "schema.sql"
 

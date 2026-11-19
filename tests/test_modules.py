@@ -90,7 +90,7 @@ class TestPainPointRadar:
 
         mock_query.return_value = _PAIN_FIXTURE.copy()
 
-        result = get_pain_points("Salesforce", top_n=3)
+        get_pain_points("Salesforce", top_n=3)
 
         # The SQL LIMIT is applied by query_df which is mocked — we return 6 rows.
         # The function should not further truncate, but with a real DB it would.

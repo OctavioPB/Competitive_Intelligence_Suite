@@ -36,3 +36,5 @@ weasyprint>=62.0
 
 # ── Testing ──────────────────────────────────────────────────────────────────
 pytest>=8.0.0
+httpx>=0.27.0          # FastAPI TestClient (API tests)
+ruff>=0.9.0,<1.0.0     # lint, same rules as CI (ruff.toml)
