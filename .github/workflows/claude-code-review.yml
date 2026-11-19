@@ -31,7 +31,7 @@ jobs:
       - if: env.HAS_KEY != 'true'
         run: echo "::notice::ANTHROPIC_API_KEY secret not set — skipping the Claude review."
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: env.HAS_KEY == 'true'
         with:
           fetch-depth: 1
