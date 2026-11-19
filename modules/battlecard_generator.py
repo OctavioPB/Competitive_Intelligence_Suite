@@ -248,7 +248,9 @@ def load_cached_battlecard(competitor: str) -> dict | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        logger.warning("Could not load cached battlecard for %s: %s", competitor, exc)
+        # Strip line breaks so a caller-supplied name cannot forge extra log lines.
+        safe_name = competitor.replace("\r", "").replace("\n", "")
+        logger.warning("Could not load cached battlecard for %s: %s", safe_name, exc)
         return None
 
 
