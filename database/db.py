@@ -54,6 +54,16 @@ def query_df(sql: str, params: tuple | dict = ()) -> pd.DataFrame:
         return pd.read_sql_query(sql, conn, params=params)
 
 
+def query_rows(sql: str, params: tuple | dict = ()) -> list[dict]:
+    """Execute a SELECT and return plain dicts.
+
+    Unlike query_df, NULL stays None: pandas turns an all-NULL column into NaN,
+    which is truthy, "is not None" and not valid JSON.
+    """
+    with closing(get_conn()) as conn:
+        return [dict(row) for row in conn.execute(sql, params).fetchall()]
+
+
 def execute(sql: str, params: tuple = ()) -> None:
     """Execute a single write statement (INSERT, UPDATE, DELETE).
 
@@ -104,6 +114,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE reviews ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0")
         where = " OR ".join("author_id LIKE ?" for _ in _SYNTHETIC_AUTHOR_PATTERNS)
         conn.execute(f"UPDATE reviews SET is_synthetic = 1 WHERE {where}", _SYNTHETIC_AUTHOR_PATTERNS)
+
+    if "is_synthetic" not in _columns(conn, "digests"):
+        conn.execute("ALTER TABLE digests ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0")
 
     if "is_synthetic" not in _columns(conn, "processed_reviews"):
         conn.execute(

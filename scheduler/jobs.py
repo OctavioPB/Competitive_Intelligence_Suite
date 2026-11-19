@@ -40,24 +40,42 @@ def job_market_signals() -> None:
 
 
 def job_check_alerts() -> None:
-    """Daily job: detect trigger signals and fire Slack alerts for new ones."""
+    """Daily job: detect trigger signals and send Slack messages for new ones only.
+
+    Detections are stored in alert_history first, so an ongoing signal (a
+    sentiment drop that lasts a week) is one alert and one message, not one a day.
+    """
     from config import COMPETITOR_NAMES
+    from modules.alert_history import mark_notified, pending_notifications, record_alerts
     from modules.trigger_alerts import check_triggers, generate_outreach, send_slack_alert
 
     logger.info("Scheduled job: checking alert triggers for %d competitors...", len(COMPETITOR_NAMES))
     alerts = check_triggers(COMPETITOR_NAMES)
+    rows = record_alerts(alerts)
+    # Without a webhook nothing is sent, so nothing may be marked as notified —
+    # otherwise configuring Slack later would never deliver these.
+    webhook_set = bool(os.getenv("SLACK_WEBHOOK_URL"))
+    to_send = {r["id"] for r in pending_notifications(rows)} if webhook_set else set()
 
-    for alert in alerts:
+    delivered: list[int] = []
+    for alert, row in zip(alerts, rows):
+        if row["id"] not in to_send:
+            continue
         try:
             alert.outreach_draft = generate_outreach(alert, llm=False)
             send_slack_alert(alert)
+            delivered.append(row["id"])
         except Exception as exc:  # noqa: BLE001 — one bad webhook call must not drop the rest
             logger.error(
                 "Could not deliver alert %s / %s: %s",
                 alert.competitor, alert.trigger_type, exc,
             )
+    mark_notified(delivered)
 
-    logger.info("Scheduled job: %d alert(s) detected.", len(alerts))
+    logger.info(
+        "Scheduled job: %d alert(s) detected, %d new, %d sent to Slack.",
+        len(alerts), sum(r["is_new"] for r in rows), len(delivered),
+    )
 
 
 def job_send_digest() -> None:

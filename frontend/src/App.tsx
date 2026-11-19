@@ -15,6 +15,8 @@ import ChurnIntelligencePage from './pages/ChurnIntelligencePage'
 import DigestPage from './pages/DigestPage'
 import OutreachComposerPage from './pages/OutreachComposerPage'
 import MarketSignalsPage from './pages/MarketSignalsPage'
+import ChangesPage from './pages/ChangesPage'
+import ComparePage from './pages/ComparePage'
 
 export type Page =
   | 'home'
@@ -29,6 +31,8 @@ export type Page =
   | 'digest'
   | 'outreach'
   | 'signals'
+  | 'changes'
+  | 'compare'
 
 function renderPage(page: Page, onNavigate: (p: Page) => void) {
   switch (page) {
@@ -56,6 +60,10 @@ function renderPage(page: Page, onNavigate: (p: Page) => void) {
       return <OutreachComposerPage />
     case 'signals':
       return <MarketSignalsPage />
+    case 'changes':
+      return <ChangesPage />
+    case 'compare':
+      return <ComparePage onNavigate={onNavigate} />
   }
 }
 

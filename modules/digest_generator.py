@@ -50,7 +50,7 @@ _TOP_PAIN_SQL = """
 
 _LATEST_DIGEST_SQL = "SELECT report_json FROM digests ORDER BY id DESC LIMIT 1"
 _DIGEST_HISTORY_SQL = "SELECT id, generated_at FROM digests ORDER BY id DESC LIMIT 20"
-_INSERT_DIGEST_SQL  = "INSERT INTO digests (generated_at, report_json) VALUES (?, ?)"
+_INSERT_DIGEST_SQL  = "INSERT INTO digests (generated_at, report_json, is_synthetic) VALUES (?, ?, ?)"
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
 
@@ -181,7 +181,12 @@ def _store_digest(data: dict) -> None:
     try:
         execute(
             _INSERT_DIGEST_SQL,
-            (data.get("generated_at", ""), json.dumps(data, ensure_ascii=False)),
+            (
+                data.get("generated_at", ""),
+                json.dumps(data, ensure_ascii=False),
+                # A digest written from the demo database summarises sample data.
+                int(os.getenv("DEMO_MODE", "false").lower() == "true"),
+            ),
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not store digest: %s", exc)

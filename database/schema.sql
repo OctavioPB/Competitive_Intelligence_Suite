@@ -45,8 +45,51 @@ CREATE INDEX IF NOT EXISTS idx_processed_comp_date   ON processed_reviews(compet
 CREATE TABLE IF NOT EXISTS digests (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     generated_at  TEXT    NOT NULL,
-    report_json   TEXT    NOT NULL
+    report_json   TEXT    NOT NULL,
+    is_synthetic  INTEGER NOT NULL DEFAULT 0
 );
+
+-- Every alert ever detected. A detection that matches an alert seen in the last
+-- 7 days updates that row instead of creating a new one, so a signal that lasts
+-- a week is one alert (and one Slack message), not seven.
+CREATE TABLE IF NOT EXISTS alert_history (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    competitor_name  TEXT    NOT NULL,
+    trigger_type     TEXT    NOT NULL,
+    dedupe_key       TEXT    NOT NULL DEFAULT '',   -- e.g. headline or price-change date
+    evidence_summary TEXT    NOT NULL,              -- latest evidence text
+    first_seen       TEXT    NOT NULL,              -- ISO date of first detection
+    last_seen        TEXT    NOT NULL,              -- ISO date of latest detection
+    times_seen       INTEGER NOT NULL DEFAULT 1,
+    status           TEXT    NOT NULL DEFAULT 'new', -- new | seen | dismissed
+    status_changed_at TEXT,
+    outreach_draft   TEXT,
+    notified_at      TEXT,                          -- when it was sent to Slack
+    is_synthetic     INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_lookup ON alert_history(competitor_name, trigger_type, dedupe_key, last_seen);
+CREATE INDEX IF NOT EXISTS idx_alerts_status ON alert_history(status, last_seen);
+
+-- Hot Prospect leads kept across scans, with where each one stands.
+CREATE TABLE IF NOT EXISTS prospect_leads (
+    post_url          TEXT    PRIMARY KEY,
+    username          TEXT    NOT NULL,
+    competitor_name   TEXT,
+    created_at        TEXT,                         -- when the Reddit post was written
+    urgency_score     REAL    NOT NULL DEFAULT 0,
+    complaint_summary TEXT,
+    company_signals   TEXT,                         -- JSON list
+    suggested_angle   TEXT,
+    status            TEXT    NOT NULL DEFAULT 'new', -- new | contacted | replied | opportunity | dismissed
+    note              TEXT,
+    first_seen        TEXT    NOT NULL,
+    last_seen         TEXT    NOT NULL,
+    status_changed_at TEXT,
+    is_synthetic      INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_leads_status ON prospect_leads(status, urgency_score);
 
 CREATE INDEX IF NOT EXISTS idx_digests_generated ON digests(generated_at);
 

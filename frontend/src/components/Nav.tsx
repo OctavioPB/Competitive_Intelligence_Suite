@@ -11,6 +11,8 @@ const GROUPS: NavGroupDef[] = [
   {
     label: 'Intelligence',
     pages: [
+      { id: 'changes',    label: 'What Changed' },
+      { id: 'compare',    label: 'Compare'      },
       { id: 'pain-radar', label: 'Pain Radar'   },
       { id: 'sentiment',  label: 'Sentiment'    },
       { id: 'wish-miner', label: 'Wish Miner'   },

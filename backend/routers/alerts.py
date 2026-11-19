@@ -1,14 +1,27 @@
 """Alerts router — competitor vulnerability trigger alerts."""
 
+import logging
+import sqlite3
 from datetime import datetime, timezone
+from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from backend.deps import known_competitor
 from config import COMPETITOR_NAMES
+from modules.alert_history import (
+    UnknownAlertError,
+    list_alerts,
+    mark_all_seen,
+    record_alerts,
+    save_draft,
+    set_status,
+    status_counts,
+)
 from modules.trigger_alerts import Alert, check_triggers, generate_outreach
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["alerts"])
 
 
@@ -115,19 +128,89 @@ class OutreachRequest(BaseModel):
     timestamp: str
     outreach_draft: str | None = None
     use_llm: bool = False
+    alert_id: int | None = None        # when set, the draft is saved on that history row
+
+
+class StatusRequest(BaseModel):
+    status: Literal["new", "seen", "dismissed"]
+
+
+class MarkSeenRequest(BaseModel):
+    competitor: str | None = None
+
+
+def _history_to_dict(row: dict, timestamp: str) -> dict:
+    """A history row in the shape the Alerts page already renders, plus workflow fields."""
+    return {
+        "trigger_type": row["trigger_type"],
+        "competitor": row["competitor"],
+        "evidence_summary": row["evidence_summary"],
+        "timestamp": timestamp,
+        "outreach_draft": row["outreach_draft"],
+        "id": row["id"],
+        "status": row["status"],
+        "is_new": row.get("is_new", False),
+        "first_seen": row["first_seen"],
+        "last_seen": row["last_seen"],
+        "times_seen": row["times_seen"],
+        "is_synthetic": row["is_synthetic"],
+    }
 
 
 @router.get("/alerts/demo")
 def get_demo_alerts():
-    """Return the hardcoded bad-week demo scenario."""
+    """Return the hardcoded bad-week demo scenario (not stored in the history)."""
     return [_alert_to_dict(a) for a in _demo_alerts()]
 
 
 @router.post("/alerts/scan")
 def scan_alerts():
-    """Run live trigger checks across all configured competitors."""
+    """Run trigger checks across all competitors and record them in the history.
+
+    An alert already detected during the last 7 days keeps its id and status, so
+    re-scanning never turns a seen or dismissed alert back into a new one.
+    """
     alerts = check_triggers(COMPETITOR_NAMES)
-    return [_alert_to_dict(a) for a in alerts]
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        rows = record_alerts(alerts)
+    except sqlite3.Error as exc:
+        # The detections matter more than their bookkeeping — return them unstored.
+        logger.warning("Could not store alerts in the history: %s", exc)
+        return [{**_alert_to_dict(a), "id": None, "status": None} for a in alerts]
+    return [_history_to_dict(row, now) for row in rows]
+
+
+@router.get("/alerts/history")
+def alert_history(
+    status: Literal["new", "seen", "dismissed"] | None = None,
+    competitor: str | None = None,
+    active: bool = False,
+    limit: int = Query(200, ge=1, le=1000),
+):
+    """Stored alerts, most recently seen first, with counts per status."""
+    name = known_competitor(competitor) if competitor else None
+    rows = list_alerts(status=status, competitor=name, active_only=active, limit=limit)
+    return {
+        "alerts": [_history_to_dict(r, f"{r['last_seen']}T00:00:00") for r in rows],
+        "counts": status_counts(),
+    }
+
+
+@router.post("/alerts/{alert_id}/status")
+def update_alert_status(alert_id: int, body: StatusRequest):
+    try:
+        row = set_status(alert_id, body.status)
+    except UnknownAlertError as exc:
+        raise HTTPException(status_code=404, detail=f"No alert with id {alert_id}") from exc
+    return _history_to_dict(row, f"{row['last_seen']}T00:00:00")
+
+
+@router.post("/alerts/mark-seen")
+def mark_seen(body: MarkSeenRequest):
+    """Mark every new alert (optionally of one competitor) as seen."""
+    name = known_competitor(body.competitor) if body.competitor else None
+    return {"updated": mark_all_seen(name)}
 
 
 @router.post("/alerts/outreach")
@@ -146,4 +229,6 @@ def draft_outreach(body: OutreachRequest):
         outreach_draft=body.outreach_draft or "",
     )
     draft = generate_outreach(alert, llm=body.use_llm)
+    if body.alert_id is not None:
+        save_draft(body.alert_id, draft)
     return {"draft": draft}
