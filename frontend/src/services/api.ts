@@ -91,12 +91,79 @@ export interface Battlecard {
   feature_gaps: FeatureGap[]
 }
 
+export type AlertType =
+  | 'sentiment_drop'
+  | 'negative_news'
+  | 'review_spike'
+  | 'pricing_change'
+  | 'hiring_signal'
+
 export interface Alert {
-  trigger_type: 'sentiment_drop' | 'negative_news' | 'review_spike'
+  trigger_type: AlertType
   competitor: string
   evidence_summary: string
   timestamp: string
   outreach_draft: string | null
+}
+
+// ── Market signals ──────────────────────────────────────────────────────────
+
+export interface PricingChange {
+  date:    string
+  changes: string[]
+  added:   string[]
+  removed: string[]
+}
+
+export interface PricingPage {
+  url:             string
+  last_checked:    string
+  monitored_since: string
+  versions:        number
+  price_points:    string[]
+  last_change:     PricingChange | null
+  is_synthetic:    boolean
+}
+
+export interface PricingOverview {
+  competitor:     string
+  pages:          PricingPage[]
+  monitored_urls: string[]
+}
+
+export type RoleCategory = 'support' | 'engineering' | 'sales' | 'product' | 'marketing' | 'other'
+
+export interface JobRole {
+  title:       string
+  department:  string | null
+  location:    string | null
+  url:         string | null
+  category:    RoleCategory
+  posted_date: string
+}
+
+export interface HiringOverview {
+  competitor:        string
+  crawled_on:        string | null
+  source:            string | null
+  window_days:       number
+  open_roles:        number
+  new_roles:         number
+  by_category:       { category: RoleCategory; label: string; open: number; new: number }[]
+  integration_new:   number
+  integration_roles: JobRole[]
+  recent_roles:      JobRole[]
+  is_synthetic:      boolean
+  board:             { provider: string; board: string; recent_only: boolean } | null
+  category_labels:   Record<RoleCategory, string>
+}
+
+export interface SignalsRefreshReport {
+  competitor: string
+  pricing:    { url: string; status: 'first' | 'unchanged' | 'changed'; price_points: number; rendered: boolean; changes: string[] }[]
+  jobs:       { source: string; seen: number; new: number } | null
+  errors:     string[]
+  headless_browser: boolean
 }
 
 export interface ChurnBucket {
@@ -282,6 +349,18 @@ export const api = {
       request<Battlecard>('/battlecard', {
         method: 'POST',
         body: JSON.stringify({ competitor }),
+      }),
+  },
+
+  signals: {
+    pricing: (competitor: string) =>
+      request<PricingOverview>(`/signals/pricing?competitor=${encodeURIComponent(competitor)}`),
+    hiring: (competitor: string) =>
+      request<HiringOverview>(`/signals/hiring?competitor=${encodeURIComponent(competitor)}`),
+    refresh: (competitor: string) =>
+      request<SignalsRefreshReport>('/signals/refresh', {
+        method: 'POST',
+        body:   JSON.stringify({ competitor }),
       }),
   },
 

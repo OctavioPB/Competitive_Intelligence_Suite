@@ -14,6 +14,8 @@ const BADGE_MAP: Record<string, { label: string; color: string; bg: string }> = 
   sentiment_drop: { label: 'Sentiment Drop', color: 'var(--status-red)', bg: 'var(--status-red-bg)' },
   negative_news: { label: 'Negative News', color: 'var(--status-orange)', bg: 'var(--status-orange-bg)' },
   review_spike: { label: 'Review Spike', color: 'var(--status-purple)', bg: 'var(--status-purple-bg)' },
+  pricing_change: { label: 'Pricing Change', color: 'var(--status-green)', bg: 'var(--status-green-bg)' },
+  hiring_signal: { label: 'Hiring Signal', color: 'var(--primary-60)', bg: 'var(--primary-10)' },
 }
 
 function AlertCard({ alert }: { alert: Alert }) {
@@ -184,6 +186,8 @@ export default function TriggerAlertsPage() {
   const nDrop = alerts.filter((a) => a.trigger_type === 'sentiment_drop').length
   const nNews = alerts.filter((a) => a.trigger_type === 'negative_news').length
   const nSpike = alerts.filter((a) => a.trigger_type === 'review_spike').length
+  const nPricing = alerts.filter((a) => a.trigger_type === 'pricing_change').length
+  const nHiring = alerts.filter((a) => a.trigger_type === 'hiring_signal').length
 
   const sorted = [...alerts]
     .sort((a, b) => b.timestamp.localeCompare(a.timestamp))
@@ -218,7 +222,8 @@ export default function TriggerAlertsPage() {
             }}
           >
             Real-time competitor vulnerability signals — sentiment drops, negative
-            news, and review spikes — with pre-drafted outreach ready to send.
+            news, review spikes, pricing changes and hiring waves — with
+            pre-drafted outreach ready to send.
           </p>
         </div>
       </div>
@@ -273,7 +278,7 @@ export default function TriggerAlertsPage() {
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(4, 1fr)',
+                  gridTemplateColumns: 'repeat(3, 1fr)',
                   gap: 16,
                 }}
               >
@@ -299,6 +304,17 @@ export default function TriggerAlertsPage() {
                   value={String(nSpike)}
                   sub="unusual volume"
                   valueColor="var(--gold)"
+                />
+                <KpiCard
+                  label="Pricing Changes"
+                  value={String(nPricing)}
+                  sub="pricing pages edited"
+                  valueColor="var(--status-green)"
+                />
+                <KpiCard
+                  label="Hiring Signals"
+                  value={String(nHiring)}
+                  sub="support / integration waves"
                 />
               </div>
 

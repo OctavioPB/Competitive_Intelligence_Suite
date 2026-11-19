@@ -1,4 +1,5 @@
-"""Suite-wide safety net: tests must never reach the real Claude API."""
+"""Suite-wide safety nets: tests never reach the real Claude API, and never read
+or write the developer's real database."""
 
 import pytest
 
@@ -15,3 +16,11 @@ def _no_real_llm_calls(monkeypatch):
     get_client.cache_clear()
     yield
     get_client.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_database(tmp_path, monkeypatch):
+    # A fresh, empty SQLite file per test. Tests that need tables call
+    # init_schema(); tests that need DEMO_MODE=true set it themselves.
+    monkeypatch.setenv("DEMO_MODE", "false")
+    monkeypatch.setenv("DATABASE_URL", str(tmp_path / "isolated.db"))

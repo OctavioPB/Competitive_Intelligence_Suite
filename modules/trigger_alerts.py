@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from database.db import query_df
+from modules.market_signals import hiring_signals, pricing_change_signal
 from utils.llm import call_claude
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,28 @@ _OUTREACH_TEMPLATES: dict[str, str] = {
         "pain, we'd love to show you a better alternative.\n\n"
         "Open to a quick call?\n\nBest,"
     ),
+    "pricing_change": (
+        "Hi [Name],\n\n"
+        "{competitor} just changed its pricing. Renewals after a price change are a natural "
+        "moment to check you are still getting the best value — happy to put together a "
+        "side-by-side so you can compare before you commit.\n\n"
+        "Worth 15 minutes?\n\nBest,"
+    ),
+    "hiring_signal": (
+        "Hi [Name],\n\n"
+        "{competitor} is hiring heavily in exactly the areas customers tend to struggle with. "
+        "If your team is waiting on fixes or support from them, we'd be glad to show how we "
+        "handle it today, without the wait.\n\n"
+        "Open to a quick call?\n\nBest,"
+    ),
+}
+
+ALERT_LABELS: dict[str, str] = {
+    "sentiment_drop": "[Sentiment Drop]",
+    "negative_news": "[Negative News]",
+    "review_spike": "[Review Spike]",
+    "pricing_change": "[Pricing Change]",
+    "hiring_signal": "[Hiring Signal]",
 }
 
 
@@ -94,7 +117,7 @@ _OUTREACH_TEMPLATES: dict[str, str] = {
 class Alert:
     """A detected competitor vulnerability signal."""
 
-    trigger_type: str       # "sentiment_drop" | "negative_news" | "review_spike"
+    trigger_type: str       # a key of ALERT_LABELS
     competitor: str
     evidence_summary: str
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -168,12 +191,22 @@ def _check_review_spike(competitor: str) -> Alert | None:
     return None
 
 
+def _check_pricing_change(competitor: str) -> Alert | None:
+    evidence = pricing_change_signal(competitor)
+    if evidence is None:
+        return None
+    return Alert(trigger_type="pricing_change", competitor=competitor, evidence_summary=evidence)
+
+
+def _check_hiring(competitor: str) -> list[Alert]:
+    return [
+        Alert(trigger_type="hiring_signal", competitor=competitor, evidence_summary=evidence)
+        for evidence in hiring_signals(competitor)
+    ]
+
+
 def _build_slack_payload(alert: Alert) -> dict:
-    alert_label = {
-        "sentiment_drop": "[Sentiment Drop]",
-        "negative_news": "[Negative News]",
-        "review_spike": "[Review Spike]",
-    }.get(alert.trigger_type, "[Alert]")
+    alert_label = ALERT_LABELS.get(alert.trigger_type, "[Alert]")
     ts = alert.timestamp.strftime("%Y-%m-%d %H:%M UTC")
     return {
         "blocks": [
@@ -214,13 +247,15 @@ def _build_slack_payload(alert: Alert) -> dict:
 
 
 def check_triggers(competitor_list: list[str]) -> list[Alert]:
-    """Scan for all three signal types across the given competitors.
+    """Scan for every signal type across the given competitors.
 
     Signal 1: avg sentiment_delta < -0.5 in last 7 days.
     Signal 2: NewsAPI article containing a negative keyword in last 48 h.
     Signal 3: Review count spike > 2× the 30-day daily average.
+    Signal 4: Pricing page changed in the last 14 days.
+    Signal 5: Hiring wave in support, or a push on integration engineering.
 
-    Uses MAX(date) per competitor as the anchor so fixture data works correctly.
+    Uses the latest stored date per competitor as the anchor so fixture data works correctly.
 
     Args:
         competitor_list: Competitor names to scan.
@@ -229,13 +264,18 @@ def check_triggers(competitor_list: list[str]) -> list[Alert]:
         List of Alert objects (empty if no signals detected).
     """
     alerts: list[Alert] = []
-    checkers = (_check_sentiment_drop, _check_negative_news, _check_review_spike)
+    checkers = (
+        _check_sentiment_drop, _check_negative_news, _check_review_spike,
+        _check_pricing_change, _check_hiring,
+    )
 
     for competitor in competitor_list:
         for checker in checkers:
             try:
-                alert = checker(competitor)
-                if alert is not None:
+                found = checker(competitor)
+                for alert in found if isinstance(found, list) else [found]:
+                    if alert is None:
+                        continue
                     alerts.append(alert)
                     logger.info(
                         "Alert detected: %s / %s", competitor, alert.trigger_type

@@ -1,8 +1,10 @@
 # RivalSense — Competitive Intelligence Suite
 
-> Nine intelligence modules. Public data. Actionable signals for your sales team.
+[![CI](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/ci.yml/badge.svg)](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/ci.yml)
 
-RivalSense is a Competitive Intelligence Suite that scrapes public reviews, social media, and news; processes them through a shared NLP pipeline; and surfaces nine distinct intelligence outputs — ranked pain points, sentiment timelines, feature gap analysis, AI-generated battlecards, vulnerability alerts, switching-intent prospect leads, churn reason analysis, executive digests, and personalised outreach generation.
+> Ten intelligence modules. Public data. Actionable signals for your sales team.
+
+RivalSense is a Competitive Intelligence Suite that scrapes public reviews, social media, news, competitor pricing pages and job boards; processes them through a shared NLP pipeline; and surfaces ten distinct intelligence outputs — ranked pain points, sentiment timelines, feature gap analysis, AI-generated battlecards, vulnerability alerts, switching-intent prospect leads, churn reason analysis, executive digests, personalised outreach generation, and pricing / hiring market signals.
 
 ---
 
@@ -14,11 +16,12 @@ RivalSense is a Competitive Intelligence Suite that scrapes public reviews, soci
 | M02 | **Sentiment Timeline** | 18-month sentiment curve per competitor with NewsAPI event overlay |
 | M03 | **Feature Wish Miner** | Extracts feature requests from reviews, clusters semantically, flags gaps your product already covers |
 | M04 | **Battlecard Generator** | Claude-powered objection handler + pitch per competitor, exported as JSON/Markdown |
-| M05 | **Trigger Alerts** | Detects sentiment drops, negative news, and review spikes; drafts outreach with one click |
+| M05 | **Trigger Alerts** | Detects sentiment drops, negative news, review spikes, pricing-page changes and hiring waves; drafts outreach with one click |
 | M06 | **Hot Prospect Finder** | Scans Reddit for switching-intent posts, scores urgency, enriches leads with company signals |
 | M07 | **Churn Intelligence** | Categorises why users leave each competitor into 5 structured buckets with proof quotes |
 | M08 | **Intelligence Digest** | Claude-synthesised weekly executive brief across all competitors — one page, three action bullets each |
 | M09 | **Outreach Composer** | Generates personalised email, LinkedIn DM, and cold call bullets from a prospect's complaint |
+| M10 | **Market Signals** | Watches competitor pricing pages for price changes and their job boards for support or integration hiring waves |
 
 ---
 
@@ -27,8 +30,10 @@ RivalSense is a Competitive Intelligence Suite that scrapes public reviews, soci
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  LAYER 1 — INGESTION                                            │
-│  G2 · Trustpilot · Reddit (PRAW) · NewsAPI                     │
+│  G2 · Capterra · Trustpilot · App Store · Reddit · NewsAPI      │
 │  ingestion/run_ingestion.py  →  SQLite: reviews                 │
+│  Pricing pages · job boards (Greenhouse/Lever/Ashby/Workday)    │
+│  ingestion/run_signals.py  →  pricing_snapshots, job_postings   │
 └──────────────────────────┬──────────────────────────────────────┘
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
@@ -78,6 +83,10 @@ cp .env.example .env
 
 python ingestion/run_ingestion.py   # ~30–60 min first run
 python pipeline/run_pipeline.py
+python ingestion/run_signals.py     # pricing pages + job boards, ~2 min
+
+# Optional: headless Chromium for JavaScript-rendered pages (HubSpot pricing, G2)
+playwright install chromium
 
 .\demo.ps1 -Demo:$false
 ```
@@ -129,7 +138,15 @@ rivalsense/
 ├── ingestion/
 │   ├── run_ingestion.py       # CLI orchestrator (--use-fixtures for synthetic data)
 │   ├── fixtures.py            # Deterministic synthetic review generator
+│   ├── run_signals.py         # Pricing pages + job boards → market-signal tables
+│   ├── signal_fixtures.py     # Sample pricing change + hiring waves for the demo DB
+│   ├── browser.py             # Static fetch → headless Chromium fallback, anti-bot wall detection
+│   ├── structured_reviews.py  # schema.org JSON-LD review parser (G2, Capterra)
 │   ├── scraper_g2.py
+│   ├── scraper_capterra.py
+│   ├── scraper_appstore.py    # Apple's public customer-reviews feed
+│   ├── scraper_pricing.py     # Price points with plan + unit context
+│   ├── scraper_jobs.py        # Greenhouse · Lever · Ashby · Workday job boards
 │   ├── scraper_trustpilot.py
 │   ├── scraper_reddit.py
 │   └── scraper_newsapi.py
@@ -143,6 +160,7 @@ rivalsense/
 │
 ├── modules/
 │   ├── review_evidence.py         # Reviews behind a pain point / month + data-provenance stats
+│   ├── market_signals.py          # M10 — pricing diffs, role classification, hiring signals
 │   ├── pain_point_radar.py        # M01
 │   ├── sentiment_timeline.py      # M02
 │   ├── feature_wish_miner.py      # M03
@@ -179,7 +197,7 @@ rivalsense/
 │   └── email_digest.py        # SendGrid weekly digest
 │
 ├── scheduler/
-│   └── jobs.py                # APScheduler: daily scrape, alert check, weekly digest
+│   └── jobs.py                # APScheduler: daily scrape, market signals, alert check, weekly digest
 │
 ├── scripts/
 │   └── seed_demo_db.py        # Generates rivalsense_demo.db
@@ -189,12 +207,13 @@ rivalsense/
 │   └── embeddings.py          # Process-wide sentence-transformer singleton
 │
 ├── database/
-│   ├── schema.sql             # reviews, processed_reviews, digests tables
+│   ├── schema.sql             # reviews, processed_reviews, digests, pricing_snapshots, job_postings
 │   └── db.py                  # SQLite helpers (query_df, execute, executemany)
 │
 └── tests/
     ├── test_features.py        # 13 tests (data provenance, topic names, evidence)
     ├── test_integrations.py    # 15 tests (battlecard export, HubSpot / Salesforce sync)
+    ├── test_signals.py         # 31 tests (pricing diffs, job boards, review sources, new alerts)
     ├── test_pipeline.py        # 20 tests
     └── test_modules.py         # 40 tests (all modules)
 ```
@@ -290,11 +309,21 @@ Live ingestion falls back to fixture reviews when a scraper is blocked, so every
 - **Battlecard PDF.** `GET /api/battlecard/export` renders the cached battlecard. With weasyprint (Linux/macOS, or Windows + GTK) the server returns a PDF; otherwise it returns the same branded page as print-ready HTML and the UI opens the browser's print dialog ("Save as PDF"), so the button works on every machine.
 - **CRM sync.** `POST /api/crm/push` creates the selected Prospects in HubSpot (a lead-stage Contact plus a Note with complaint, urgency and suggested angle) or Salesforce (a Lead). Reddit leads have no e-mail, so the post URL — stored in the standard Website field — is the de-duplication key: re-sending a lead never creates a second record. Sample leads are never sent: the push is refused in demo mode, and the server drops any lead whose URL belongs to the built-in fixtures, whatever flag the browser sends.
 
-### 14. BERTopic minimum data requirement
+### 14. Market signals beyond reviews
+
+- **Pricing pages.** `scraper_pricing.py` extracts *price points* — a price plus the plan name before it and the unit after it ("Professional: $90 /mo/seat") — and `market_signals.record_pricing_check` stores a new version only when that set changes, with what was added and removed. Comparing price points instead of raw HTML ignores rotating banners and markup churn. A change in the last 14 days raises a `pricing_change` alert ("Professional: $90 /mo/seat → $100 /mo/seat").
+- **Job boards.** `scraper_jobs.py` reads the public JSON behind Greenhouse, Lever, Ashby and Workday career sites (no keys). Roles are classified by function from title and department; product names such as "Sales Cloud" are ignored so a Sales Cloud engineer counts as engineering. A `hiring_signal` alert fires when ≥5 new roles and ≥25 % of new roles are support/success, or ≥3 new engineering roles are about integrations/APIs. Workday lists newest first, so it is read back 30 days only.
+- **Static first, headless second.** `browser.fetch_html` tries plain HTTP and only renders with Playwright when the static HTML lacks the content (HubSpot's pricing needs it; Salesforce and Pipedrive do not — their headless view is actually emptier).
+
+### 15. Blocked sources are reported, not worked around
+
+G2 (DataDome) and Capterra (Cloudflare) serve a challenge page to both plain requests and headless Chromium. `browser.bot_wall` names the protection, the scraper raises `ScrapingError("… blocked by DataDome")`, and ingestion carries on: every source is independent, and fixtures are used only when *all* live sources return nothing. The browser deliberately does not disguise automation. For rated reviews that load reliably, the App Store's official RSS feed is used instead.
+
+### 16. BERTopic minimum data requirement
 
 BERTopic requires at least 100 documents to produce coherent clusters. Below that, `train_topics()` logs a warning and all reviews receive `topic_label='insufficient_data'`. The fixture generator produces ~126 reviews per competitor to stay above this threshold.
 
-### 15. APScheduler guarded by a module-level boolean
+### 17. APScheduler guarded by a module-level boolean
 
 `start_scheduler()` in `scheduler/jobs.py` checks a module-level `_scheduler_started` flag before creating the `BackgroundScheduler`. Without this guard, repeated calls would spawn duplicate scheduler threads and register duplicate jobs. The scheduler is opt-in: the FastAPI lifespan starts it only when `ENABLE_SCHEDULER=true`, and never when `DEMO_MODE=true`. Ingestion skips reviews that are already stored, so the daily job is safe to re-run.
 
@@ -302,7 +331,7 @@ BERTopic requires at least 100 documents to produce coherent clusters. Below tha
 
 ## Adding a Competitor
 
-1. Add a dict to `COMPETITORS` in `config.py` (all four fields required)
+1. Add a dict to `COMPETITORS` in `config.py` (`name`, `g2_slug`, `trustpilot_slug`, `reddit_keywords` required; `pricing_urls`, `careers`, `app_store_id`, `capterra_url` optional — each one switches on a source)
 2. `python ingestion/run_ingestion.py --competitor "Name" --use-fixtures` to seed data
 3. `python pipeline/run_pipeline.py --competitor "Name"` to process it
 4. Regenerate battlecards if needed
@@ -313,10 +342,28 @@ BERTopic requires at least 100 documents to produce coherent clusters. Below tha
 
 ```bash
 pytest tests/ -v
-# 88 tests, ~15 seconds
+# 119 tests, ~20 seconds
 ```
 
-Tests use fixture-based mock data throughout. No real API calls are made. Patch targets for lazy imports use the source module path (e.g. `outputs.slack_webhook.post_message`), not the calling module path.
+Tests use fixture-based mock data throughout. No real API calls are made, and every test runs against its own empty SQLite file (`tests/conftest.py`), so results never depend on your local database. Patch targets for lazy imports use the source module path (e.g. `outputs.slack_webhook.post_message`), not the calling module path.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on every pull request, on pushes to `master`, and on demand (*Actions → CI → Run workflow*):
+
+| Job | What it checks |
+|-----|----------------|
+| **Lint** | `ruff check .` — syntax errors, undefined names, unused imports/variables (rules in `ruff.toml`; style is not enforced) |
+| **Backend tests** | Full `pytest` suite on Python 3.11, with CPU-only torch, spaCy `en_core_web_sm` and a cached sentence-transformer model |
+| **Frontend** | `npm ci && npm run build` — strict TypeScript check plus the production Vite build |
+
+Run the same checks locally before pushing:
+
+```bash
+ruff check .
+pytest
+cd frontend && npm run build
+```
 
 ---
 
@@ -329,7 +376,10 @@ Tests use fixture-based mock data throughout. No real API calls are made. Patch 
 | **Reddit API** | Free tier: 100 req/min, 1,000 posts/query. Sufficient for prototype, not for production monitoring. |
 | **SQLite concurrency** | Single writer. Migrate to PostgreSQL via `DATABASE_URL` for multi-user production. |
 | **No authentication** | The API binds to `127.0.0.1` only. Add an auth layer (e.g. FastAPI middleware + JWT) before any wider exposure. |
-| **Live scraping falls back to fixtures** | If G2 blocks the scraper (it usually does — the page is JS-rendered), `run_ingestion.py` stores synthetic fixture reviews for that competitor instead. Check the log line before treating live-mode data as real. |
+| **G2 and Capterra block automated access** | Both serve an anti-bot challenge (DataDome / Cloudflare) even to headless Chromium. The scrapers detect it and skip the source; ingestion continues with the others. For G2 data at scale, use G2's own data products rather than scraping. |
+| **Fixtures only when every source fails** | `run_ingestion.py` stores synthetic reviews for a competitor only if no live source returned anything; they are flagged and the UI banner says so. |
+| **Pipedrive has no job board configured** | No public ATS feed was found for Pipedrive's careers site; add `careers` in `config.py` if one appears. |
+| **Pricing labels are heuristic** | Plan names are inferred from the text around each price. Labels stay stable between checks (which is what change detection needs) but can be imperfect on unusual layouts. |
 | **weasyprint on Windows** | Without GTK the server cannot render PDFs; the Download PDF button falls back to the browser's print dialog. |
 | **CRM sync tested against mocks only** | HubSpot and Salesforce calls are covered by unit tests with a fake HTTP session; run one push against a sandbox portal / org before relying on it. |
 
@@ -345,7 +395,7 @@ Tests use fixture-based mock data throughout. No real API calls are made. Patch 
 | Database | SQLite → PostgreSQL (via `DATABASE_URL`) |
 | Frontend | React 18 + TypeScript 5.5 + Vite 5 |
 | API | FastAPI + Uvicorn |
-| Scraping | PRAW (Reddit), requests + BeautifulSoup (G2/Trustpilot), newsapi-python |
+| Scraping | PRAW (Reddit), requests + BeautifulSoup, Playwright (headless Chromium, optional), newsapi-python, public ATS JSON (Greenhouse/Lever/Ashby/Workday), App Store RSS |
 | Scheduling | APScheduler |
 | Alerts | Slack Webhooks, SendGrid |
 | Export | pandas, weasyprint (PDF/HTML battlecards) |

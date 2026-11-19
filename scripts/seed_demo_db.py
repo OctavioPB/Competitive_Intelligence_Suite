@@ -15,6 +15,9 @@ The "bad week" scenario injects:
   → triggers negative_news alert
 - 15 extra HubSpot reviews dated 2025-12-26 to 2026-01-01
   → triggers review_spike alert (recent > 2× expected)
+- A HubSpot pricing-page change on 2025-12-29 → pricing_change alert
+- Salesforce support-hiring wave + HubSpot integration hires → hiring_signal alerts
+  (ingestion/signal_fixtures.py)
 """
 
 import json
@@ -594,6 +597,13 @@ def _run_pipeline() -> None:
             logger.error("[%s] Pipeline failed: %s", competitor["name"], exc)
 
 
+def _seed_market_signals() -> None:
+    """Sample pricing-page versions and job postings (HubSpot price rise, hiring waves)."""
+    from ingestion.signal_fixtures import seed_market_signals
+
+    logger.info("Market signals seeded: %s", seed_market_signals())
+
+
 def _write_battlecard_stubs() -> None:
     """Write pre-built battlecard JSON stubs to outputs/battlecards/."""
     from modules.battlecard_generator import _BATTLECARD_DIR, battlecard_to_markdown
@@ -642,6 +652,7 @@ def main() -> None:
     _seed_fixtures()
     _seed_bad_week()
     _run_pipeline()
+    _seed_market_signals()
     _write_battlecard_stubs()
     _print_summary()
 

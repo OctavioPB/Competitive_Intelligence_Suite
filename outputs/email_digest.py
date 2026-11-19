@@ -99,6 +99,8 @@ def _render_alerts_html(alerts: list) -> str:
         "sentiment_drop": "📉 Sentiment Drop",
         "negative_news": "📰 Negative News",
         "review_spike": "🔔 Review Spike",
+        "pricing_change": "💲 Pricing Change",
+        "hiring_signal": "🧑‍💼 Hiring Signal",
     }
 
     # Alert evidence quotes scraped headlines / posts — always HTML-escape it.

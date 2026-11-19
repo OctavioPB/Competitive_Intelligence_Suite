@@ -1,11 +1,12 @@
 """Orchestrate all scrapers and persist raw data to the reviews table."""
 
 import argparse
+import importlib
 import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 # Ensure project root is on sys.path when script is run directly
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -61,39 +62,58 @@ def _store_reviews(rows: list[dict[str, Any]]) -> int:
     return executemany(_INSERT_SQL, params)
 
 
+def _from(module: str, func: str, *args: Any) -> Callable[[], list[dict[str, Any]]]:
+    """Defer both the import and the call: praw, newsapi and playwright are only
+    needed for live scraping, and one missing package must not disable the rest."""
+
+    def fetch() -> list[dict[str, Any]]:
+        try:
+            mod = importlib.import_module(f"ingestion.{module}")
+        except ImportError as exc:
+            raise ScrapingError(f"dependency not installed: {exc}") from exc
+        return getattr(mod, func)(*args)
+
+    return fetch
+
+
+def _live_sources(competitor: CompetitorConfig) -> list[tuple[str, Callable[[], list[dict[str, Any]]]]]:
+    """(label, fetch) for every live source configured for the competitor."""
+    sources = [
+        ("G2", _from("scraper_g2", "scrape_reviews", competitor)),
+        ("Trustpilot", _from("scraper_trustpilot", "scrape_reviews", competitor)),
+        ("Reddit", _from("scraper_reddit", "scrape_posts", competitor, SUBREDDITS)),
+        ("NewsAPI", _from("scraper_newsapi", "fetch_articles", competitor)),
+    ]
+    if competitor.get("app_store_id"):
+        sources.append(("App Store", _from("scraper_appstore", "scrape_reviews", competitor)))
+    if competitor.get("capterra_url"):
+        sources.append(("Capterra", _from("scraper_capterra", "scrape_reviews", competitor)))
+    return sources
+
+
 def _scrape_with_fallback(competitor: CompetitorConfig) -> list[dict[str, Any]]:
-    """Try all live scrapers for a competitor; fall back to fixtures on failure."""
-    # Imported lazily: praw / newsapi are only needed for live scraping.
-    from ingestion import scraper_g2, scraper_newsapi, scraper_reddit, scraper_trustpilot
+    """Run every live source independently; use fixtures only if all of them fail.
 
+    One blocked site (G2 almost always is) must not throw away what the other
+    sources collected.
+    """
+    name = competitor["name"]
     all_reviews: list[dict[str, Any]] = []
+    for label, fetch in _live_sources(competitor):
+        try:
+            rows = fetch()
+        except ScrapingError as exc:
+            logger.warning("[%s] %s skipped: %s", name, label, exc)
+            continue
+        except Exception as exc:  # noqa: BLE001 — a scraper bug must not stop the rest
+            logger.error("[%s] %s failed unexpectedly: %s", name, label, exc)
+            continue
+        logger.info("[%s] %s: %d rows", name, label, len(rows))
+        all_reviews.extend(rows)
 
-    # G2
-    try:
-        all_reviews.extend(scraper_g2.scrape_reviews(competitor))
-    except ScrapingError as exc:
-        logger.warning("G2 scraper failed for %s: %s — using fixtures.", competitor["name"], exc)
-        all_reviews.extend(fixture_module.generate(competitor))
-        return all_reviews  # fixtures already contain all source types
-
-    # Trustpilot
-    try:
-        all_reviews.extend(scraper_trustpilot.scrape_reviews(competitor))
-    except ScrapingError as exc:
-        logger.warning("Trustpilot scraper failed for %s: %s", competitor["name"], exc)
-
-    # Reddit
-    try:
-        all_reviews.extend(scraper_reddit.scrape_posts(competitor, SUBREDDITS))
-    except ScrapingError as exc:
-        logger.warning("Reddit scraper failed for %s: %s", competitor["name"], exc)
-
-    # NewsAPI
-    try:
-        all_reviews.extend(scraper_newsapi.fetch_articles(competitor))
-    except ScrapingError as exc:
-        logger.warning("NewsAPI scraper failed for %s: %s", competitor["name"], exc)
-
+    if not all_reviews:
+        logger.warning("[%s] No live source returned data — using fixtures.", name)
+        return fixture_module.generate(competitor)
     return all_reviews
 
 
