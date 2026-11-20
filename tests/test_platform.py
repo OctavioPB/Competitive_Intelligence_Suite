@@ -28,7 +28,8 @@ def _admin(client, email="admin@example.com", password="correct horse battery"):
     from modules.auth import create_user
 
     create_user(email, "Admin", password, role="admin")
-    assert client.post("/api/auth/login", json={"email": email, "password": password}).status_code == 200
+    result = client.post("/api/auth/login", json={"email": email, "password": password})
+    assert result.status_code == 200
 
 
 # ── Authentication ────────────────────────────────────────────────────────────
@@ -77,12 +78,15 @@ class TestAuth:
     def test_setup_only_once_and_only_locally(self, auth_on, client, monkeypatch):
         body = {"email": "first@example.com", "name": "First", "password": "long enough password"}
         # TestClient's client host is "testclient": not this machine → refused.
-        assert client.post("/api/auth/setup", json=body).status_code == 403
+        result = client.post("/api/auth/setup", json=body)
+        assert result.status_code == 403
         monkeypatch.setenv("RIVALSENSE_SETUP_TOKEN", "s3t-up")
-        assert client.post("/api/auth/setup", json={**body, "setup_token": "bad"}).status_code == 403
+        result = client.post("/api/auth/setup", json={**body, "setup_token": "bad"})
+        assert result.status_code == 403
         ok = client.post("/api/auth/setup", json={**body, "setup_token": "s3t-up"})
         assert ok.status_code == 200 and ok.json()["role"] == "admin"
-        assert client.post("/api/auth/setup", json={**body, "setup_token": "s3t-up"}).status_code == 409
+        result = client.post("/api/auth/setup", json={**body, "setup_token": "s3t-up"})
+        assert result.status_code == 409
 
     def test_members_cannot_administer(self, auth_on, client):
         from modules.auth import create_user
@@ -90,7 +94,8 @@ class TestAuth:
         create_user("m@example.com", "Member", "long enough password", role="member")
         client.post("/api/auth/login", json={"email": "m@example.com", "password": "long enough password"})
         assert client.get("/api/settings").status_code == 200                     # can read
-        assert client.post("/api/settings/competitors", json={"name": "X", "reddit_keywords": ["x"]}).status_code == 403
+        result = client.post("/api/settings/competitors", json={"name": "X", "reddit_keywords": ["x"]})
+        assert result.status_code == 403
         assert client.get("/api/auth/users").status_code == 403
 
     def test_user_management_guards(self, auth_on, client):
@@ -99,13 +104,18 @@ class TestAuth:
         made = client.post("/api/auth/users", json={"email": "rep@example.com", "name": "Rep",
                                                     "password": "long enough password", "role": "member"})
         assert made.status_code == 200
-        assert client.post("/api/auth/users", json={"email": "rep@example.com", "name": "Rep",
-                                                    "password": "long enough password"}).status_code == 422
-        assert client.post("/api/auth/users", json={"email": "x@example.com", "name": "X",
-                                                    "password": "short"}).status_code == 422
-        assert client.delete(f"/api/auth/users/{me['id']}").status_code == 422     # not yourself
-        assert client.patch(f"/api/auth/users/{me['id']}", json={"role": "member"}).status_code == 422
-        assert client.delete(f"/api/auth/users/{made.json()['id']}").status_code == 200
+        result = client.post("/api/auth/users", json={"email": "rep@example.com", "name": "Rep",
+                                                      "password": "long enough password"})
+        assert result.status_code == 422
+        result = client.post("/api/auth/users", json={"email": "x@example.com", "name": "X",
+                                                      "password": "short"})
+        assert result.status_code == 422
+        result = client.delete(f"/api/auth/users/{me['id']}")
+        assert result.status_code == 422     # not yourself
+        result = client.patch(f"/api/auth/users/{me['id']}", json={"role": "member"})
+        assert result.status_code == 422
+        result = client.delete(f"/api/auth/users/{made.json()['id']}")
+        assert result.status_code == 200
 
     def test_password_change_signs_out_everywhere(self, auth_on, client):
         from modules.auth import create_user, update_user, user_for_token
@@ -139,7 +149,8 @@ class TestSettings:
 
         renamed = client.put("/api/settings/competitors/Zoho CRM", json={**new, "name": "Zoho"})
         assert renamed.status_code == 200 and "Zoho" in competitor_names() and "Zoho CRM" not in competitor_names()
-        assert client.delete("/api/settings/competitors/Zoho").status_code == 200
+        result = client.delete("/api/settings/competitors/Zoho")
+        assert result.status_code == 200
         assert client.get("/api/winloss", params={"competitor": "Zoho"}).status_code == 404
 
         r = client.put("/api/settings/own-features", json={"features": ["  Flat  Rate Pricing", "flat rate pricing", "SSO"]})
@@ -163,12 +174,17 @@ class TestSettings:
             validate_competitor({"name": "Acme", "reddit_keywords": ["acme"], **patch})
 
     def test_guards(self, db, client):
-        assert client.post("/api/settings/competitors", json={"name": "HubSpot", "reddit_keywords": ["x"]}).status_code == 422
-        assert client.put("/api/settings/competitors/Nope", json={"name": "Nope", "reddit_keywords": ["x"]}).status_code == 404
-        assert client.put("/api/settings/own-features", json={"features": ["  "]}).status_code == 422
+        result = client.post("/api/settings/competitors", json={"name": "HubSpot", "reddit_keywords": ["x"]})
+        assert result.status_code == 422
+        result = client.put("/api/settings/competitors/Nope", json={"name": "Nope", "reddit_keywords": ["x"]})
+        assert result.status_code == 404
+        result = client.put("/api/settings/own-features", json={"features": ["  "]})
+        assert result.status_code == 422
         for name in ("Salesforce", "HubSpot"):
-            assert client.delete(f"/api/settings/competitors/{name}").status_code == 200
-        assert client.delete("/api/settings/competitors/Pipedrive").status_code == 422   # keep one
+            result = client.delete(f"/api/settings/competitors/{name}")
+            assert result.status_code == 200
+        result = client.delete("/api/settings/competitors/Pipedrive")
+        assert result.status_code == 422   # keep one
 
 
 # ── Win / loss ────────────────────────────────────────────────────────────────
@@ -221,12 +237,15 @@ class TestWinLoss:
         r = client.post("/api/winloss/deals", json={"competitor": "HubSpot", "outcome": "lost",
                                                      "reason_category": "pricing", "deal_name": "Acme"})
         assert r.status_code == 200 and r.json()["created_by"] == "local@localhost"
-        assert client.post("/api/winloss/deals", json={"competitor": "Nope", "outcome": "lost",
-                                                        "reason_category": "pricing"}).status_code == 404
+        result = client.post("/api/winloss/deals", json={"competitor": "Nope", "outcome": "lost",
+                                                          "reason_category": "pricing"})
+        assert result.status_code == 404
         body = client.get("/api/winloss", params={"competitor": "HubSpot"}).json()
         assert body["recent"][0]["deal_name"] == "Acme"
-        assert client.delete(f"/api/winloss/deals/{r.json()['id']}").status_code == 200
-        assert client.delete("/api/winloss/deals/999").status_code == 404
+        result = client.delete(f"/api/winloss/deals/{r.json()['id']}")
+        assert result.status_code == 200
+        result = client.delete("/api/winloss/deals/999")
+        assert result.status_code == 404
 
 
 # ── Ask RivalSense ────────────────────────────────────────────────────────────
@@ -307,8 +326,10 @@ class TestAsk:
     def test_no_match(self, db, client):
         body = client.post("/api/ask", json={"question": "zzzz qqqq"}).json()
         assert body["mode"] == "none" and body["sources"] == []
-        assert client.post("/api/ask", json={"question": "hi"}).status_code == 422        # too short
-        assert client.post("/api/ask", json={"question": "pricing?", "competitor": "Nope"}).status_code == 404
+        result = client.post("/api/ask", json={"question": "hi"})
+        assert result.status_code == 422        # too short
+        result = client.post("/api/ask", json={"question": "pricing?", "competitor": "Nope"})
+        assert result.status_code == 404
 
     def test_vectors_round_trip(self, db):
         import numpy as np

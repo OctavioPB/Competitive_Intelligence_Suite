@@ -41,7 +41,8 @@ class TestAlertHistory:
 
         row = record_alerts([_alert()], date(2026, 1, 1))[0]
         set_status(row["id"], "dismissed")
-        assert record_alerts([_alert()], date(2026, 1, 6))[0]["status"] == "dismissed"
+        result = record_alerts([_alert()], date(2026, 1, 6))
+        assert result[0]["status"] == "dismissed"
 
         # Gone for more than a week, then back: a new episode, a new alert.
         back = record_alerts([_alert()], date(2026, 1, 20))[0]
@@ -63,7 +64,8 @@ class TestAlertHistory:
 
         record_alerts([_alert(), _alert("review_spike")], date(2026, 1, 1))
         assert status_counts() == {"new": 2, "seen": 0, "dismissed": 0}
-        assert mark_all_seen() == 2
+        result = mark_all_seen()
+        assert result == 2
         assert status_counts()["seen"] == 2
         with pytest.raises(ValueError):
             set_status(1, "archived")
@@ -77,7 +79,8 @@ class TestAlertHistory:
         # DEMO_MODE would switch to rivalsense_demo.db; keep the isolated file.
         monkeypatch.setattr(dbmod, "_db_path", lambda: tmp_path / "isolated.db")
         monkeypatch.setenv("DEMO_MODE", "true")
-        assert record_alerts([_alert()], date(2026, 1, 1))[0]["is_synthetic"] is True
+        result = record_alerts([_alert()], date(2026, 1, 1))
+        assert result[0]["is_synthetic"] is True
 
 
 class TestSchedulerNotifications:
@@ -97,14 +100,18 @@ class TestSchedulerNotifications:
 
     def test_each_alert_reaches_slack_once(self, db, monkeypatch):
         alerts = [_alert(), _alert("pricing_change", "HubSpot", key="url|2026-01-01")]
-        assert sorted(self._run(monkeypatch, alerts, webhook=True)) == ["pricing_change", "sentiment_drop"]
-        assert self._run(monkeypatch, alerts, webhook=True) == []          # next day: nothing new
+        result = self._run(monkeypatch, alerts, webhook=True)
+        assert sorted(result) == ["pricing_change", "sentiment_drop"]
+        result = self._run(monkeypatch, alerts, webhook=True)
+        assert result == []          # next day: nothing new
 
     def test_without_webhook_nothing_is_marked_sent(self, db, monkeypatch):
         alerts = [_alert()]
-        assert self._run(monkeypatch, alerts, webhook=False) == []
+        result = self._run(monkeypatch, alerts, webhook=False)
+        assert result == []
         # Slack configured later: the pending alert is delivered then.
-        assert self._run(monkeypatch, alerts, webhook=True) == ["sentiment_drop"]
+        result = self._run(monkeypatch, alerts, webhook=True)
+        assert result == ["sentiment_drop"]
 
 
 # ── Prospect pipeline ─────────────────────────────────────────────────────────
@@ -120,7 +127,8 @@ class TestProspectPipeline:
     def test_rescans_keep_stage_and_note(self, db):
         from modules.prospect_pipeline import set_stage, upsert_leads
 
-        assert upsert_leads([_LEAD])[0]["status"] == "new"
+        result = upsert_leads([_LEAD])
+        assert result[0]["status"] == "new"
         set_stage(_LEAD["post_url"], "contacted", "Emailed Monday")
         again = upsert_leads([{**_LEAD, "urgency_score": 0.9}])[0]
         assert (again["status"], again["note"], again["urgency_score"]) == ("contacted", "Emailed Monday", 0.9)
@@ -243,17 +251,22 @@ class TestApis:
 
         found = client.post("/api/alerts/scan").json()
         assert found[0]["is_new"] and found[0]["status"] == "new"
-        assert client.post("/api/alerts/scan").json()[0]["is_new"] is False
-        assert client.post(f"/api/alerts/{found[0]['id']}/status", json={"status": "seen"}).json()["status"] == "seen"
-        assert client.post("/api/alerts/999/status", json={"status": "seen"}).status_code == 404
-        assert client.post("/api/alerts/1/status", json={"status": "archived"}).status_code == 422
+        result = client.post("/api/alerts/scan")
+        assert result.json()[0]["is_new"] is False
+        result = client.post(f"/api/alerts/{found[0]['id']}/status", json={"status": "seen"})
+        assert result.json()["status"] == "seen"
+        result = client.post("/api/alerts/999/status", json={"status": "seen"})
+        assert result.status_code == 404
+        result = client.post("/api/alerts/1/status", json={"status": "archived"})
+        assert result.status_code == 422
         assert client.get("/api/alerts/history").json()["counts"] == {"new": 0, "seen": 1, "dismissed": 0}
 
         leads = client.get("/api/prospects/demo").json()
         assert all(lead["status"] == "new" for lead in leads)
         moved = client.post("/api/prospects/stage", json={"post_url": leads[0]["post_url"], "status": "replied"})
         assert moved.json()["status"] == "replied"
-        assert client.post("/api/prospects/stage", json={"post_url": "https://x", "status": "replied"}).status_code == 404
+        result = client.post("/api/prospects/stage", json={"post_url": "https://x", "status": "replied"})
+        assert result.status_code == 404
         assert client.get("/api/prospects/pipeline").json()["stages"][2] == {"id": "replied", "label": "Replied", "count": 1}
 
     def test_old_digest_tables_are_migrated(self, tmp_path, monkeypatch):

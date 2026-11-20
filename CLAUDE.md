@@ -32,6 +32,8 @@ built by `scripts/seed_demo_db.py`; databases are git-ignored.
 - **Tests never touch the network, Claude or a real DB.** `tests/conftest.py` gives
   every test its own empty SQLite file and blanks `ANTHROPIC_API_KEY`; call
   `init_schema()` when a test needs tables. Mock HTTP (see `tests/test_integrations.py`).
+  Never call anything with a side effect inside an `assert` (CodeQL flags it, and
+  `python -O` would skip the call): `result = client.post(...)`, then `assert result…`.
 - **Sample data is always flagged.** Fixture/seeded rows set `is_synthetic = 1`;
   live checks refuse to run in `DEMO_MODE`; sample leads never reach a CRM.
 - **Validate competitor names** with `backend.deps.known_competitor` before they reach

@@ -114,8 +114,10 @@ class TestPricingSignal:
         v1 = ["Starter: $15 /mo/seat", "Professional: $90 /mo/seat"]
         v2 = ["Starter: $15 /mo/seat", "Professional: $100 /mo/seat"]
 
-        assert record_pricing_check("HubSpot", self.URL, v1, date(2026, 1, 1))["status"] == "first"
-        assert record_pricing_check("HubSpot", self.URL, list(reversed(v1)), date(2026, 1, 2))["status"] == "unchanged"
+        result = record_pricing_check("HubSpot", self.URL, v1, date(2026, 1, 1))
+        assert result["status"] == "first"
+        result = record_pricing_check("HubSpot", self.URL, list(reversed(v1)), date(2026, 1, 2))
+        assert result["status"] == "unchanged"
         changed = record_pricing_check("HubSpot", self.URL, v2, date(2026, 1, 3))
         assert changed == {
             "status": "changed",
