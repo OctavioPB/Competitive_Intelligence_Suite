@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from config import COMPETITOR_NAMES
+from modules.settings_store import competitor_names
 from modules.digest_generator import generate_digest, list_digest_history, load_latest_digest
 
 router = APIRouter(tags=["digest"])
@@ -23,4 +23,4 @@ def get_digest_history():
 @router.post("/digest/generate")
 def create_digest():
     """Generate a fresh Claude-synthesised digest across all competitors."""
-    return generate_digest(COMPETITOR_NAMES)
+    return generate_digest(competitor_names())

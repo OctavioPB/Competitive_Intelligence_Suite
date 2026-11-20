@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type React from 'react'
 import type { Page } from '../App'
+import type { User } from '../services/api'
 
 type NavGroupDef = {
   label: string
@@ -11,6 +12,7 @@ const GROUPS: NavGroupDef[] = [
   {
     label: 'Intelligence',
     pages: [
+      { id: 'ask',        label: 'Ask RivalSense' },
       { id: 'changes',    label: 'What Changed' },
       { id: 'compare',    label: 'Compare'      },
       { id: 'pain-radar', label: 'Pain Radar'   },
@@ -27,6 +29,7 @@ const GROUPS: NavGroupDef[] = [
       { id: 'battlecard', label: 'Battlecard'   },
       { id: 'alerts',     label: 'Alerts'       },
       { id: 'prospects',  label: 'Prospects'    },
+      { id: 'winloss',    label: 'Win / Loss'   },
       { id: 'outreach',   label: 'Outreach'     },
     ],
   },
@@ -34,6 +37,7 @@ const GROUPS: NavGroupDef[] = [
     label: 'Platform',
     pages: [
       { id: 'info', label: 'Overview' },
+      { id: 'settings', label: 'Settings' },
     ],
   },
 ]
@@ -148,11 +152,17 @@ export default function Nav({
   onNavigate,
   theme,
   onToggleTheme,
+  user,
+  authEnabled,
+  onSignOut,
 }: {
   currentPage:   Page
   onNavigate:    (p: Page) => void
   theme:         'light' | 'dark'
   onToggleTheme: () => void
+  user:          User | null
+  authEnabled:   boolean
+  onSignOut:     () => void
 }) {
   return (
     <nav
@@ -251,6 +261,24 @@ export default function Nav({
         >
           {theme === 'dark' ? '☀' : '◑'}
         </button>
+
+        {authEnabled && user && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 10, paddingLeft: 12, borderLeft: '1px solid rgba(255,255,255,0.12)', alignSelf: 'center' }}>
+            <span title={`${user.email} · ${user.role}`} style={{ fontFamily: 'var(--fb)', fontSize: 11, color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap' }}>
+              {user.name}
+            </span>
+            <button
+              onClick={onSignOut}
+              style={{
+                background: 'none', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 'var(--radius-sm)',
+                color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontFamily: 'var(--fb)', fontSize: 9,
+                letterSpacing: '1.5px', textTransform: 'uppercase', padding: '4px 8px', whiteSpace: 'nowrap',
+              }}
+            >
+              Sign out
+            </button>
+          </div>
+        )}
       </div>
     </nav>
   )

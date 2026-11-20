@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config import COMPETITORS  # noqa: E402
 
 Check = tuple[str, str, bool, Callable[[], str]]   # competitor, source, required, run → detail
+RETRY_DELAY = 20                                 # seconds before retrying a failed required source
 
 
 def _pricing(url: str) -> Callable[[], str]:
@@ -91,11 +92,17 @@ def main() -> int:
     failures = 0
     for competitor, source, required, run in checks():
         started = time.monotonic()
-        try:
-            status, detail = "✅ ok", run()
-        except Exception as exc:  # noqa: BLE001 — every failure is reported, none aborts the run
-            detail = str(exc).replace("|", "/")[:180]
-            status = "❌ failed" if required else "⚠️ blocked (expected)"
+        # A required source gets one retry: a single timeout or rate-limit is not a broken scraper.
+        for attempt in range(2 if required else 1):
+            try:
+                status, detail = ("✅ ok" if attempt == 0 else "✅ ok (after retry)"), run()
+                break
+            except Exception as exc:  # noqa: BLE001 — every failure is reported, none aborts the run
+                detail = str(exc).replace("|", "/")[:180]
+                status = "❌ failed" if required else "⚠️ blocked (expected)"
+                if attempt == 0 and required:
+                    time.sleep(RETRY_DELAY)
+        else:
             failures += required
         rows.append((competitor, source, status, f"{detail} · {time.monotonic() - started:.1f}s"))
 

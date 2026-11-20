@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.deps import known_competitor
-from config import COMPETITORS
+from modules.settings_store import get_competitor
 from ingestion.browser import playwright_available
 from modules.market_signals import CATEGORY_LABELS, get_hiring_overview, get_pricing_overview
 
@@ -14,7 +14,7 @@ router = APIRouter(tags=["signals"])
 
 
 def _config(competitor: str) -> dict:
-    return next(c for c in COMPETITORS if c["name"] == competitor)
+    return get_competitor(competitor) or {}
 
 
 def _demo_mode() -> bool:

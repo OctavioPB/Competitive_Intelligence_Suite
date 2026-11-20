@@ -42,9 +42,9 @@ class UnknownAlertError(LookupError):
 def _synthetic_competitors() -> set[str]:
     """Competitors whose stored reviews are mostly sample data (alerts on them are too)."""
     if os.getenv("DEMO_MODE", "false").lower() == "true":
-        from config import COMPETITOR_NAMES
+        from modules.settings_store import competitor_names
 
-        return set(COMPETITOR_NAMES)
+        return set(competitor_names())
     from modules.review_evidence import get_data_status
 
     try:

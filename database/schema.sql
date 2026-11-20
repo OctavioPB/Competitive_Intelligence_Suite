@@ -132,3 +132,63 @@ CREATE TABLE IF NOT EXISTS job_postings (
 );
 
 CREATE INDEX IF NOT EXISTS idx_jobs_comp_seen ON job_postings(competitor_name, last_seen);
+
+-- ── Platform ───────────────────────────────────────────────────────────────────
+
+-- Competitors and own features, editable from the UI. Seeded from config.py the
+-- first time the table is empty (modules/settings_store.py).
+CREATE TABLE IF NOT EXISTS competitors (
+    name        TEXT    PRIMARY KEY,
+    config_json TEXT    NOT NULL,                   -- CompetitorConfig without "name"
+    position    INTEGER NOT NULL DEFAULT 0,
+    updated_at  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS own_features (
+    feature  TEXT    PRIMARY KEY,
+    position INTEGER NOT NULL DEFAULT 0
+);
+
+-- Accounts. Passwords are scrypt hashes; sessions store only a hash of the token.
+CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    email         TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    name          TEXT    NOT NULL,
+    password_hash TEXT    NOT NULL,
+    role          TEXT    NOT NULL DEFAULT 'member', -- admin | member
+    created_at    TEXT    NOT NULL,
+    last_login    TEXT
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT    PRIMARY KEY,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT    NOT NULL,
+    expires_at TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
+-- Win/loss: why each deal against a competitor was won or lost.
+CREATE TABLE IF NOT EXISTS deals (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    competitor_name TEXT    NOT NULL,
+    outcome         TEXT    NOT NULL,               -- won | lost
+    reason_category TEXT    NOT NULL,               -- pricing | features | support | ux | reliability | integrations | other
+    reason_text     TEXT,
+    deal_name       TEXT,
+    amount          REAL,
+    closed_on       TEXT    NOT NULL,               -- ISO date
+    created_by      TEXT,
+    created_at      TEXT    NOT NULL,
+    is_synthetic    INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_deals_comp ON deals(competitor_name, closed_on);
+
+-- Sentence-transformer vectors of processed reviews for "Ask RivalSense".
+CREATE TABLE IF NOT EXISTS review_embeddings (
+    review_id INTEGER PRIMARY KEY,                  -- reviews.id (= processed_reviews.review_id)
+    model     TEXT    NOT NULL,
+    vector    BLOB    NOT NULL                      -- float32, L2-normalised
+);

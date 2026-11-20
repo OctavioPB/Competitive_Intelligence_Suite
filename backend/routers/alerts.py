@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from backend.deps import known_competitor
-from config import COMPETITOR_NAMES
+from modules.settings_store import competitor_names
 from modules.alert_history import (
     UnknownAlertError,
     list_alerts,
@@ -170,7 +170,7 @@ def scan_alerts():
     An alert already detected during the last 7 days keeps its id and status, so
     re-scanning never turns a seen or dismissed alert back into a new one.
     """
-    alerts = check_triggers(COMPETITOR_NAMES)
+    alerts = check_triggers(competitor_names())
     now = datetime.now(timezone.utc).isoformat()
     try:
         rows = record_alerts(alerts)

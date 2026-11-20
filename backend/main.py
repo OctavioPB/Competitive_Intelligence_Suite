@@ -14,8 +14,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from backend.auth_deps import PUBLIC_PATHS, auth_enabled
 from backend.routers import (
     alerts,
+    ask,
+    auth,
     battlecard,
     churn,
     crm,
@@ -27,10 +30,13 @@ from backend.routers import (
     prospects,
     reviews,
     sentiment,
+    settings,
     signals,
+    winloss,
     wishes,
 )
 from database.db import init_schema
+from modules.auth import COOKIE_NAME, user_for_token
 from utils.llm import LLMConfigError
 
 logger = logging.getLogger(__name__)
@@ -59,10 +65,32 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="RivalSense API", version="1.0.0", lifespan=lifespan)
 
+
+@app.middleware("http")
+async def require_session(request: Request, call_next):
+    """Every /api route needs a signed-in user, except the ones used to sign in.
+
+    Registered before CORS so the CORS middleware wraps it and 401s carry CORS headers.
+    """
+    path = request.url.path
+    if (
+        auth_enabled()
+        and path.startswith("/api/")
+        and path not in PUBLIC_PATHS
+        and request.method != "OPTIONS"
+    ):
+        user = user_for_token(request.cookies.get(COOKIE_NAME))
+        if user is None:
+            return JSONResponse(status_code=401, content={"detail": "Sign in required"})
+        request.state.user = user
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ORIGINS,
-    allow_methods=["GET", "POST"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Content-Type"],
 )
 
@@ -82,6 +110,7 @@ async def _llm_api_error(_: Request, exc: anthropic.APIError):
 for _router in (
     meta, pain_points, sentiment, wishes, battlecard,
     alerts, prospects, churn, digest, outreach, reviews, crm, signals, insights,
+    auth, settings, winloss, ask,
 ):
     app.include_router(_router.router, prefix="/api")
 
@@ -94,5 +123,6 @@ def root():
 if __name__ == "__main__":
     import uvicorn
 
-    # Loopback only: the API has no authentication (see README, Known Limitations).
+    # Loopback by default. Sign-in is required (AUTH_DISABLED=true turns it off for
+    # single-user local use); see README → Authentication before exposing it.
     uvicorn.run("backend.main:app", host="127.0.0.1", port=8000, reload=True)

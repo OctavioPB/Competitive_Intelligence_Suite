@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Query
 
 from backend.deps import known_competitor
-from config import COMPETITOR_NAMES
+from modules.settings_store import competitor_names
 from modules.change_tracker import get_changes
 from modules.competitor_compare import compare_competitors
 
@@ -19,4 +19,4 @@ def changes(competitor: str, days: int = Query(7, ge=1, le=90)):
 @router.get("/compare")
 def compare():
     """Every configured competitor side by side."""
-    return compare_competitors(COMPETITOR_NAMES)
+    return compare_competitors(competitor_names())

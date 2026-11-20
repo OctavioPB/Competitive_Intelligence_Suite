@@ -1,4 +1,4 @@
-"""Sample history for the demo: an earlier battlecard version and two weekly digests.
+"""Sample history for the demo: an earlier battlecard version, two weekly digests and win/loss deals.
 
 "What changed" compares stored versions; a freshly seeded demo has only one
 of each, so this adds the week before (flagged is_synthetic where the table
@@ -19,7 +19,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import COMPETITOR_NAMES
 from database.db import get_conn, init_schema
 
 PREVIOUS_DAY = "2025-12-20"
@@ -111,7 +110,9 @@ def seed_previous_battlecards() -> int:
     from modules.battlecard_generator import _BATTLECARD_DIR, _slug
 
     written = 0
-    for name in COMPETITOR_NAMES:
+    from modules.settings_store import competitor_names
+
+    for name in competitor_names():
         latest = _BATTLECARD_DIR / f"{_slug(name)}_latest.json"
         if name not in _PREVIOUS_CARD_EDITS or not latest.exists():
             continue
@@ -133,8 +134,41 @@ def seed_digests() -> int:
     return len(_DIGESTS)
 
 
+# (competitor, outcome, category, reason, deal, amount, closed_on)
+_DEALS = [
+    ("Salesforce", "lost", "features", "Needed CPQ and territory management out of the box", "Northwind Logistics", 84000, "2025-11-18"),
+    ("Salesforce", "won", "pricing", "Three-year TCO was 40% lower once admin cost was included", "Contoso Retail", 52000, "2025-11-25"),
+    ("Salesforce", "won", "support", "Their support had left them waiting two weeks on a sync bug", "Fabrikam Health", 61000, "2025-12-03"),
+    ("Salesforce", "won", "reliability", "Moved after the December outage", "Tailspin Toys", 38000, "2025-12-30"),
+    ("Salesforce", "lost", "integrations", "Deep existing MuleSoft integration with their ERP", "Adventure Works", 120000, "2025-12-12"),
+    ("HubSpot", "lost", "pricing", "HubSpot Starter was cheaper for 5 seats", "Blue Yonder Bikes", 9000, "2025-11-20"),
+    ("HubSpot", "lost", "pricing", "Bundled marketing hub discount", "Lucerne Publishing", 14000, "2025-12-08"),
+    ("HubSpot", "won", "pricing", "Contact-tier jump would have doubled their bill", "Wide World Importers", 22000, "2025-12-15"),
+    ("HubSpot", "lost", "ux", "Sales team already knew the HubSpot UI", "Proseware", 11000, "2025-12-19"),
+    ("HubSpot", "won", "features", "Needed custom reports without the Enterprise tier", "Litware", 18000, "2025-12-29"),
+    ("Pipedrive", "won", "features", "Outgrew Pipedrive reporting and automation", "Margie's Travel", 16000, "2025-12-02"),
+    ("Pipedrive", "lost", "pricing", "Pipedrive Growth plan was half the price", "Alpine Ski House", 6000, "2025-12-22"),
+]
+
+
+def seed_deals() -> int:
+    from modules.winloss import record_deal
+
+    init_schema()
+    with closing(get_conn()) as conn, conn:
+        conn.execute("DELETE FROM deals WHERE is_synthetic = 1")
+    for comp, outcome, cat, reason, deal, amount, day in _DEALS:
+        record_deal(comp, outcome, cat, reason_text=reason, deal_name=deal, amount=amount,
+                    closed_on=day, created_by="demo", is_synthetic=True)
+    return len(_DEALS)
+
+
 def seed_history() -> dict[str, int]:
-    return {"battlecard_versions": seed_previous_battlecards(), "digests": seed_digests()}
+    return {
+        "battlecard_versions": seed_previous_battlecards(),
+        "digests": seed_digests(),
+        "deals": seed_deals(),
+    }
 
 
 if __name__ == "__main__":

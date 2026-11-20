@@ -11,10 +11,11 @@ from typing import Any, Callable
 # Ensure project root is on sys.path when script is run directly
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import COMPETITORS, SUBREDDITS, CompetitorConfig
+from config import SUBREDDITS, CompetitorConfig
 from database.db import executemany, init_schema
 from ingestion import fixtures as fixture_module
 from ingestion.scraper_g2 import ScrapingError
+from modules.settings_store import competitors as all_competitors
 
 logger = logging.getLogger(__name__)
 
@@ -175,13 +176,13 @@ def main() -> None:
     init_schema()
 
     targets = (
-        [c for c in COMPETITORS if c["name"] == args.competitor]
+        [c for c in all_competitors() if c["name"] == args.competitor]
         if args.competitor
-        else COMPETITORS
+        else all_competitors()
     )
 
     if not targets:
-        logger.error("No competitor matched '%s'. Check config.COMPETITORS.", args.competitor)
+        logger.error("No competitor matched '%s'. Check the Settings page.", args.competitor)
         sys.exit(1)
 
     total = 0

@@ -17,13 +17,14 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config import COMPETITORS, CompetitorConfig
+from config import CompetitorConfig
 from database.db import init_schema
 from ingestion.browser import FetchError
 from ingestion.scraper_g2 import ScrapingError
 from ingestion.scraper_jobs import fetch_postings
 from ingestion.scraper_pricing import fetch_price_points
 from modules.market_signals import describe_changes, record_job_postings, record_pricing_check
+from modules.settings_store import competitors as all_competitors
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +81,9 @@ def main() -> None:
         sys.exit(1)
 
     init_schema()
-    targets = [c for c in COMPETITORS if args.competitor in (None, c["name"])]
+    targets = [c for c in all_competitors() if args.competitor in (None, c["name"])]
     if not targets:
-        logger.error("No competitor matched '%s'. Check config.COMPETITORS.", args.competitor)
+        logger.error("No competitor matched '%s'. Check the Settings page.", args.competitor)
         sys.exit(1)
 
     for competitor in targets:

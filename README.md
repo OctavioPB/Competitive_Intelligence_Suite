@@ -1,6 +1,16 @@
 # RivalSense — Competitive Intelligence Suite
 
-[![CI](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/ci.yml/badge.svg)](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/ci.yml)
+[![CI](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/codeql.yml)
+[![Live sources](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/live-sources.yml/badge.svg)](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/live-sources.yml)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React 18](https://img.shields.io/badge/react-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Claude](https://img.shields.io/badge/LLM-Claude-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/claude)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot&logoColor=white)](.github/dependabot.yml)
+[![License: Proprietary](https://img.shields.io/badge/license-proprietary-lightgrey)](LICENSE)
 
 > Ten intelligence modules. Public data. Actionable signals for your sales team.
 
@@ -31,6 +41,9 @@ Daily-workflow views on top of the modules:
 | **Compare** | Every competitor side by side: monthly sentiment overlay, 30-day sentiment and rating, top pain points, cached churn reasons, active alerts, last price change, support hiring share |
 | **Alert history** | Alerts are stored with a status (new / seen / dismissed); an ongoing signal stays one alert and reaches Slack once |
 | **Prospect pipeline** | Every lead found is kept with a stage (new → contacted → replied → opportunity, or not a fit) and a note |
+| **Ask RivalSense** | Chat over every stored review: semantic search (the pipeline's sentence-transformer vectors) + a Claude answer that cites its reviews as [n]; without an API key it returns the matching reviews |
+| **Win / Loss** | Reps log why each deal was won or lost; each reason area is set against the share of that competitor's review complaints (contested / their strength / proven angle / untapped) |
+| **Settings** | Competitors (and all their sources) and your own features, edited in the UI and stored per database; admins also manage user accounts |
 
 ---
 
@@ -83,6 +96,10 @@ python -m spacy download en_core_web_sm
 # Launch React + FastAPI stack (builds rivalsense_demo.db on first run)
 .\demo.ps1
 ```
+
+On first open the app asks you to **create the first admin account** (allowed only from the
+machine running the API). For a single-user local setup you can skip sign-in with
+`AUTH_DISABLED=true`.
 
 ### Live mode (requires API keys)
 
@@ -175,6 +192,10 @@ rivalsense/
 │   ├── prospect_pipeline.py       # Leads kept across scans with a pipeline stage and note
 │   ├── change_tracker.py          # What changed: review windows, battlecard + digest diffs
 │   ├── competitor_compare.py      # All competitors side by side
+│   ├── settings_store.py          # Competitors + own features in the DB (seeded from config.py)
+│   ├── auth.py                    # Users, scrypt passwords, sessions, login throttling
+│   ├── winloss.py                 # Deals and the deal-reason vs review-complaint cross-check
+│   ├── ask.py                     # Review embeddings index, retrieval and cited answers
 │   ├── pain_point_radar.py        # M01
 │   ├── sentiment_timeline.py      # M02
 │   ├── feature_wish_miner.py      # M03
@@ -230,6 +251,7 @@ rivalsense/
     ├── test_integrations.py    # 15 tests (battlecard export, HubSpot / Salesforce sync)
     ├── test_signals.py         # 31 tests (pricing diffs, job boards, review sources, new alerts)
     ├── test_workflow.py        # 16 tests (alert history, Slack de-dup, pipeline, what changed, compare)
+    ├── test_platform.py        # 28 tests (auth, settings, win/loss, Ask RivalSense)
     ├── test_pipeline.py        # 20 tests
     └── test_modules.py         # 40 tests (all modules)
 ```
@@ -351,18 +373,28 @@ BERTopic requires at least 100 documents to produce coherent clusters. Below tha
 
 ## Adding a Competitor
 
-1. Add a dict to `COMPETITORS` in `config.py` (`name`, `g2_slug`, `trustpilot_slug`, `reddit_keywords` required; `pricing_urls`, `careers`, `app_store_id`, `capterra_url` optional — each one switches on a source)
-2. `python ingestion/run_ingestion.py --competitor "Name" --use-fixtures` to seed data
+1. As an admin, open **Settings → Add competitor** (`name` and Reddit keywords required; G2 / Trustpilot slugs, pricing pages, job board, App Store id and Capterra URL optional — each one switches on a source). `config.py` only holds the defaults a new database starts with.
+2. `python ingestion/run_ingestion.py --competitor "Name"` to collect data (`--use-fixtures` has sample data only for the three built-in competitors)
 3. `python pipeline/run_pipeline.py --competitor "Name"` to process it
 4. Regenerate battlecards if needed
 
 ---
 
+## Authentication
+
+Every `/api` route requires a signed-in user, except the four used to sign in (`/api/auth/status|login|logout|setup`).
+
+- **Accounts.** Passwords are hashed with scrypt and a per-user salt. Sessions are random 32-byte tokens in an `HttpOnly`, `SameSite=Strict` cookie; only their SHA-256 is stored. Sessions last 14 days; changing a password signs that account out everywhere.
+- **Roles.** `admin` edits Settings and manages users; `member` uses everything else and can read Settings.
+- **First admin.** Created from the sign-in screen only by a direct request from the API's own machine, or anywhere with `RIVALSENSE_SETUP_TOKEN`; or with `python scripts/create_user.py you@company.com "Your Name" --role admin`.
+- **Brute force.** Five failed logins for an email or a client address lock further attempts for 15 minutes.
+- **Local single-user.** `AUTH_DISABLED=true` turns sign-in off (every request acts as a local admin).
+
 ## Running Tests
 
 ```bash
 pytest tests/ -v
-# 135 tests, ~20 seconds
+# 163 tests, ~25 seconds
 ```
 
 Tests use fixture-based mock data throughout. No real API calls are made, and every test runs against its own empty SQLite file (`tests/conftest.py`), so results never depend on your local database. Patch targets for lazy imports use the source module path (e.g. `outputs.slack_webhook.post_message`), not the calling module path.
@@ -407,7 +439,8 @@ The two Claude workflows need an `ANTHROPIC_API_KEY` repository secret (*Setting
 | **BERTopic minimum** | Topic labels show as `insufficient_data` below 100 reviews per competitor. |
 | **Reddit API** | Free tier: 100 req/min, 1,000 posts/query. Sufficient for prototype, not for production monitoring. |
 | **SQLite concurrency** | Single writer. Migrate to PostgreSQL via `DATABASE_URL` for multi-user production. |
-| **No authentication** | The API binds to `127.0.0.1` only. Add an auth layer (e.g. FastAPI middleware + JWT) before any wider exposure. |
+| **Exposing the app** | Sign-in is built in, but serve it behind HTTPS (set `COOKIE_SECURE=true`) and create the first admin before opening the port. There is no password-reset email: admins reset passwords in Settings or with `scripts/create_user.py --reset`. |
+| **One client per database** | Competitors, features, users and data live in one SQLite file. Serving several clients means one deployment (or `DATABASE_URL`) per client. |
 | **G2 and Capterra block automated access** | Both serve an anti-bot challenge (DataDome / Cloudflare) even to headless Chromium. The scrapers detect it and skip the source; ingestion continues with the others. For G2 data at scale, use G2's own data products rather than scraping. |
 | **Fixtures only when every source fails** | `run_ingestion.py` stores synthetic reviews for a competitor only if no live source returned anything; they are flagged and the UI banner says so. |
 | **Pipedrive has no job board configured** | No public ATS feed was found for Pipedrive's careers site; add `careers` in `config.py` if one appears. |

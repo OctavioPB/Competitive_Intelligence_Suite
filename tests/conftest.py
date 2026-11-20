@@ -24,3 +24,12 @@ def _isolated_database(tmp_path, monkeypatch):
     # init_schema(); tests that need DEMO_MODE=true set it themselves.
     monkeypatch.setenv("DEMO_MODE", "false")
     monkeypatch.setenv("DATABASE_URL", str(tmp_path / "isolated.db"))
+
+
+@pytest.fixture(autouse=True)
+def _auth_off_by_default(monkeypatch):
+    # Most tests exercise features, not sign-in; tests/test_platform.py turns auth on.
+    monkeypatch.setenv("AUTH_DISABLED", "true")
+    from modules.auth import reset_limiter
+
+    reset_limiter()

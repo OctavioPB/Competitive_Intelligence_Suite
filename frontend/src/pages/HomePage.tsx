@@ -4,6 +4,21 @@ import { heroStyle } from '../styles/shared'
 
 const MODULES: { page: Page; title: string; desc: string }[] = [
   {
+    page: 'ask',
+    title: 'Ask RivalSense',
+    desc: 'Ask anything about competitors; answers cite the reviews behind them.',
+  },
+  {
+    page: 'winloss',
+    title: 'Win / Loss',
+    desc: 'Log why deals were won or lost and check it against review pain points.',
+  },
+  {
+    page: 'settings',
+    title: 'Settings',
+    desc: 'Competitors to track, your own features, and who can sign in.',
+  },
+  {
     page: 'changes',
     title: 'What Changed',
     desc: 'This week vs last: reviews, battlecard, digest, alerts, pricing and hiring.',
