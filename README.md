@@ -1,6 +1,16 @@
 # RivalSense — Competitive Intelligence Suite
 
-[![CI](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/ci.yml/badge.svg)](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/ci.yml)
+[![CI](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/codeql.yml)
+[![Live sources](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/live-sources.yml/badge.svg)](https://github.com/OctavioPB/Competitive_Intelligence_Suite/actions/workflows/live-sources.yml)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React 18](https://img.shields.io/badge/react-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Claude](https://img.shields.io/badge/LLM-Claude-D97757?logo=anthropic&logoColor=white)](https://www.anthropic.com/claude)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot&logoColor=white)](.github/dependabot.yml)
+[![License: Proprietary](https://img.shields.io/badge/license-proprietary-lightgrey)](LICENSE)
 
 > Ten intelligence modules. Public data. Actionable signals for your sales team.
 
