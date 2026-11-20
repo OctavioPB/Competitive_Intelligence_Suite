@@ -151,6 +151,11 @@ DATABASE_URL=rivalsense.db
 
 # Toggle demo mode (uses rivalsense_demo.db, skips APScheduler)
 DEMO_MODE=false
+
+# Authentication (see Authentication below)
+AUTH_DISABLED=false            # true = no sign-in; every request acts as a local admin
+RIVALSENSE_SETUP_TOKEN=...     # lets the first admin be created from another machine
+COOKIE_SECURE=false            # true when served over HTTPS
 ```
 
 ---
@@ -209,11 +214,12 @@ rivalsense/
 ├── backend/
 │   ├── main.py                # FastAPI app + router registration
 │   ├── deps.py                # Shared helpers: competitor validation, JSON-safe floats
-│   └── routers/               # One router per module (REST endpoints)
+│   ├── auth_deps.py           # Sign-in plumbing: current user, admin check, AUTH_DISABLED
+│   └── routers/               # One router per module (REST endpoints) + auth, settings, winloss, ask
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── App.tsx            # Page routing
+│   │   ├── App.tsx            # Sign-in gate + page routing
 │   │   ├── pages/             # One page component per module
 │   │   ├── components/        # Nav, Footer, KpiCard, Eyebrow, …
 │   │   ├── services/api.ts    # All HTTP calls — no fetch in components
@@ -235,7 +241,9 @@ rivalsense/
 │   └── jobs.py                # APScheduler: daily scrape, market signals, alert check (new alerts only), weekly digest
 │
 ├── scripts/
-│   └── seed_demo_db.py        # Generates rivalsense_demo.db
+│   ├── seed_demo_db.py        # Generates rivalsense_demo.db
+│   ├── create_user.py         # Create an account / reset a password from the server
+│   └── check_live_sources.py  # Hits every real source once (weekly Live sources workflow)
 │
 ├── utils/
 │   ├── llm.py                 # Claude client, retry, JSON parse/repair (shared by all LLM modules)
@@ -243,8 +251,9 @@ rivalsense/
 │
 ├── database/
 │   ├── schema.sql             # reviews, processed_reviews, digests, pricing_snapshots, job_postings,
-│   │                          # alert_history, prospect_leads
-│   └── db.py                  # SQLite helpers (query_df, execute, executemany)
+│   │                          # alert_history, prospect_leads, competitors, own_features,
+│   │                          # users, sessions, deals, review_embeddings
+│   └── db.py                  # SQLite helpers (query_df, query_rows, execute, executemany)
 │
 └── tests/
     ├── test_features.py        # 13 tests (data provenance, topic names, evidence)
