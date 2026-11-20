@@ -50,3 +50,42 @@ export const card: CSSProperties = {
   boxShadow: 'var(--shadow-card)',
   border: '1px solid var(--primary-10)',
 }
+
+/** Form field label: small caps text above its control. */
+export const labelStyle: CSSProperties = {
+  fontFamily: 'var(--fb)',
+  fontSize: 10,
+  fontWeight: 500,
+  letterSpacing: '2px',
+  textTransform: 'uppercase',
+  color: 'var(--mid)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+}
+
+/** Text input / select / textarea. */
+export const inputStyle: CSSProperties = {
+  fontFamily: 'var(--fb)',
+  fontSize: 13,
+  color: 'var(--dark)',
+  border: '1px solid var(--primary-10)',
+  borderRadius: 'var(--radius-sm)',
+  padding: '8px 10px',
+  backgroundColor: 'var(--white)',
+  textTransform: 'none',
+  letterSpacing: 0,
+  width: '100%',
+}
+
+/** Small outlined button for secondary row actions. */
+export const btnGhost: CSSProperties = {
+  background: 'none',
+  border: '1px solid var(--primary-10)',
+  borderRadius: 'var(--radius-sm)',
+  fontFamily: 'var(--fb)',
+  fontSize: 11,
+  color: 'var(--link)',
+  cursor: 'pointer',
+  padding: '5px 12px',
+}

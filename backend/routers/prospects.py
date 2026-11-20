@@ -9,7 +9,8 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.deps import json_safe
-from config import COMPETITOR_NAMES, SUBREDDITS
+from config import SUBREDDITS
+from modules.settings_store import competitor_names
 from modules.hot_prospect_finder import enrich_lead, scan_reddit, score_urgency
 from modules.prospect_pipeline import UnknownLeadError, get_pipeline, set_stage, upsert_leads
 
@@ -169,7 +170,7 @@ def get_demo_prospects():
 def scan_prospects():
     """Scan Reddit for live switching-intent posts and enrich them."""
     try:
-        raw_df = scan_reddit(COMPETITOR_NAMES, SUBREDDITS[:3])
+        raw_df = scan_reddit(competitor_names(), SUBREDDITS[:3])
         if raw_df.empty:
             return []
 

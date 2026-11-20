@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 
 import pandas as pd
 
-from config import COMPETITORS, OWN_FEATURES, PROJECT_ROOT
+from config import PROJECT_ROOT
+from modules.settings_store import competitors, own_features
 from modules.feature_wish_miner import extract_wishes, flag_own_features
 from modules.pain_point_radar import get_pain_points
 from utils.llm import REPAIR_SYSTEM_PROMPT, call_claude, parse_json_object
@@ -271,7 +272,7 @@ def generate_battlecard(competitor: str) -> dict:
     pain_df = get_pain_points(competitor, top_n=5)
     wish_df = extract_wishes(competitor)
     if not wish_df.empty:
-        wish_df = flag_own_features(wish_df, OWN_FEATURES)
+        wish_df = flag_own_features(wish_df, own_features())
 
     user_prompt = _build_user_prompt(competitor, pain_df, wish_df)
     logger.info("[%s] Calling Claude API ...", competitor)
@@ -288,7 +289,7 @@ def refresh_all_battlecards() -> None:
     outputs/battlecards/. Logs a summary on completion.
     """
     results: dict[str, str] = {}
-    for competitor in COMPETITORS:
+    for competitor in competitors():
         name = competitor["name"]
         try:
             generate_battlecard(name)

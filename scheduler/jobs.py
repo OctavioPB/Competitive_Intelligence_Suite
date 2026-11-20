@@ -8,12 +8,12 @@ logger = logging.getLogger(__name__)
 
 def job_scrape_and_process() -> None:
     """Daily job: run full ingestion then NLP pipeline for all competitors."""
-    from config import COMPETITORS
+    from modules.settings_store import competitors
     from ingestion.run_ingestion import run_for_competitor as ingest
     from pipeline.run_pipeline import run_for_competitor as process
 
     logger.info("Scheduled job: starting daily scrape and process...")
-    for competitor in COMPETITORS:
+    for competitor in competitors():
         try:
             ingest(competitor)
             process(competitor)
@@ -25,11 +25,11 @@ def job_scrape_and_process() -> None:
 
 def job_market_signals() -> None:
     """Daily job: re-check competitor pricing pages and job boards."""
-    from config import COMPETITORS
+    from modules.settings_store import competitors
     from ingestion.run_signals import check_competitor
 
     logger.info("Scheduled job: checking pricing pages and job boards ...")
-    for competitor in COMPETITORS:
+    for competitor in competitors():
         try:
             report = check_competitor(competitor)
             for error in report["errors"]:
@@ -45,12 +45,12 @@ def job_check_alerts() -> None:
     Detections are stored in alert_history first, so an ongoing signal (a
     sentiment drop that lasts a week) is one alert and one message, not one a day.
     """
-    from config import COMPETITOR_NAMES
+    from modules.settings_store import competitor_names
     from modules.alert_history import mark_notified, pending_notifications, record_alerts
     from modules.trigger_alerts import check_triggers, generate_outreach, send_slack_alert
 
-    logger.info("Scheduled job: checking alert triggers for %d competitors...", len(COMPETITOR_NAMES))
-    alerts = check_triggers(COMPETITOR_NAMES)
+    logger.info("Scheduled job: checking alert triggers for %d competitors...", len(competitor_names()))
+    alerts = check_triggers(competitor_names())
     rows = record_alerts(alerts)
     # Without a webhook nothing is sent, so nothing may be marked as notified —
     # otherwise configuring Slack later would never deliver these.
@@ -80,13 +80,13 @@ def job_check_alerts() -> None:
 
 def job_send_digest() -> None:
     """Weekly job: generate the intelligence digest and email the week's alerts."""
-    from config import COMPETITOR_NAMES
+    from modules.settings_store import competitor_names
     from modules.digest_generator import generate_digest
     from modules.trigger_alerts import check_triggers
 
     logger.info("Scheduled job: generating weekly intelligence digest ...")
     try:
-        digest = generate_digest(COMPETITOR_NAMES)
+        digest = generate_digest(competitor_names())
         logger.info("Digest generated: %s", digest.get("generated_at", ""))
     except Exception as exc:  # noqa: BLE001
         logger.error("Digest generation failed: %s", exc)
@@ -99,7 +99,7 @@ def job_send_digest() -> None:
         # The email body is built from the alert list — sending it empty made
         # every weekly email read "No alerts detected this week".
         send_weekly_digest(
-            alerts=check_triggers(COMPETITOR_NAMES),
+            alerts=check_triggers(competitor_names()),
             leads_df=None,
             to_email=to_email,
         )

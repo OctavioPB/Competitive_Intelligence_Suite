@@ -11,7 +11,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pandas as pd
 
-from config import COMPETITORS, CompetitorConfig
+from config import CompetitorConfig
+from modules.settings_store import competitors as all_competitors
 from database.db import executemany, init_schema, query_df
 from pipeline.entity_extractor import extract_entities_batch
 from pipeline.sentiment import (
@@ -135,6 +136,15 @@ def run_for_competitor(competitor: CompetitorConfig) -> int:
 
     executemany(_UPSERT_SQL, rows)
     logger.info("[%s] Wrote %d processed_reviews rows.", name, len(rows))
+
+    # The same vectors power "Ask RivalSense" — store them instead of re-embedding later.
+    if embeddings is not None:
+        try:
+            from modules.ask import store_vectors
+
+            store_vectors([int(i) for i in df["id"]], embeddings)
+        except Exception as exc:  # noqa: BLE001 — the search index is optional
+            logger.warning("[%s] Could not store review embeddings: %s", name, exc)
     return len(rows)
 
 
@@ -166,13 +176,13 @@ def main() -> None:
     init_schema()
 
     targets = (
-        [c for c in COMPETITORS if c["name"] == args.competitor]
+        [c for c in all_competitors() if c["name"] == args.competitor]
         if args.competitor
-        else COMPETITORS
+        else all_competitors()
     )
 
     if not targets:
-        logger.error("No competitor matched '%s'. Check config.COMPETITORS.", args.competitor)
+        logger.error("No competitor matched '%s'. Check the Settings page.", args.competitor)
         sys.exit(1)
 
     if args.relabel:

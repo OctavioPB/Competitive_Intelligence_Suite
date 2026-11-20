@@ -2,6 +2,9 @@
 
 const BASE = '/api'
 
+/** Fired on any 401 outside /auth — App listens and returns to the sign-in screen. */
+export const UNAUTHORIZED_EVENT = 'rivalsense:unauthorized'
+
 async function fetchOk(path: string, opts?: RequestInit): Promise<Response> {
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
@@ -10,6 +13,10 @@ async function fetchOk(path: string, opts?: RequestInit): Promise<Response> {
       ...opts?.headers,
     },
   })
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    // Session expired or signed out elsewhere — App shows the sign-in screen.
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+  }
   if (!res.ok) {
     // FastAPI reports errors as { detail: string } — surface that to the user.
     let detail = ''
@@ -393,9 +400,162 @@ export interface DataStatus {
   competitors: CompetitorDataStatus[]
 }
 
+// ── Auth / settings / win-loss / ask ─────────────────────────────────────────
+
+export type Role = 'admin' | 'member'
+
+export interface User {
+  id:         number
+  email:      string
+  name:       string
+  role:       Role
+  created_at: string | null
+  last_login: string | null
+}
+
+export interface AuthStatus {
+  auth_enabled:          boolean
+  setup_required:        boolean
+  setup_allowed:         boolean
+  setup_token_required?: boolean
+  user:                  User | null
+  min_password:          number
+}
+
+export interface CompetitorSettings {
+  name:            string
+  g2_slug:         string
+  trustpilot_slug: string
+  reddit_keywords: string[]
+  pricing_urls?:   string[]
+  careers?:        { provider: string; board: string }
+  app_store_id?:   number
+  capterra_url?:   string
+}
+
+export interface SettingsData {
+  competitors:  CompetitorSettings[]
+  own_features: string[]
+}
+
+export type DealOutcome = 'won' | 'lost'
+
+export interface Deal {
+  id:              number
+  competitor:      string
+  outcome:         DealOutcome
+  reason_category: string
+  reason_label:    string
+  reason_text:     string | null
+  deal_name:       string | null
+  amount:          number | null
+  closed_on:       string
+  created_by:      string | null
+  is_synthetic:    boolean
+}
+
+export interface WinLossCategory {
+  category:      string
+  label:         string
+  lost:          number
+  won:           number
+  lost_share:    number
+  won_share:     number
+  review_share:  number
+  review_topics: string[]
+  reading:       'contested' | 'strength' | 'proven' | 'untapped' | null
+  reading_text:  string | null
+}
+
+export interface WinLoss {
+  competitor:      string
+  deals:           number
+  won:             number
+  lost:            number
+  win_rate:        number | null
+  amount_lost:     number | null
+  categories:      WinLossCategory[]
+  is_synthetic:    boolean
+  recent:          Deal[]
+  category_labels: Record<string, string>
+}
+
+export interface DealInput {
+  competitor:      string
+  outcome:         DealOutcome
+  reason_category: string
+  reason_text?:    string
+  deal_name?:      string
+  amount?:         number | null
+  closed_on?:      string
+}
+
+export interface AskSource {
+  n:            number
+  review_id:    number
+  competitor:   string
+  source:       string
+  date:         string | null
+  rating:       number | null
+  sentiment:    number | null
+  topic:        string | null
+  text:         string
+  score:        number
+  is_synthetic: boolean
+}
+
+export interface AskAnswer {
+  question:   string
+  competitor: string | null
+  answer:     string | null
+  mode:       'claude' | 'retrieval' | 'none'
+  retrieval:  'semantic' | 'keyword'
+  sources:    AskSource[]
+  cited:      number[]
+}
+
+const json = (method: string, body?: unknown): RequestInit => ({
+  method,
+  body: body === undefined ? undefined : JSON.stringify(body),
+})
+
 // ── API object ────────────────────────────────────────────────────────────────
 
 export const api = {
+  auth: {
+    status: () => request<AuthStatus>('/auth/status'),
+    login:  (email: string, password: string) => request<User>('/auth/login', json('POST', { email, password })),
+    setup:  (body: { email: string; name: string; password: string; setup_token?: string }) =>
+      request<User>('/auth/setup', json('POST', body)),
+    logout: () => request<{ ok: boolean }>('/auth/logout', json('POST', {})),
+    users:  () => request<User[]>('/auth/users'),
+    createUser: (body: { email: string; name: string; password: string; role: Role }) =>
+      request<User>('/auth/users', json('POST', body)),
+    updateUser: (id: number, body: { role?: Role; password?: string }) =>
+      request<User>(`/auth/users/${id}`, json('PATCH', body)),
+    deleteUser: (id: number) => request<{ ok: boolean }>(`/auth/users/${id}`, json('DELETE')),
+  },
+
+  settings: {
+    get: () => request<SettingsData>('/settings'),
+    addCompetitor: (c: CompetitorSettings) => request<CompetitorSettings>('/settings/competitors', json('POST', c)),
+    updateCompetitor: (original: string, c: CompetitorSettings) =>
+      request<CompetitorSettings>(`/settings/competitors/${encodeURIComponent(original)}`, json('PUT', c)),
+    deleteCompetitor: (name: string) =>
+      request<{ ok: boolean }>(`/settings/competitors/${encodeURIComponent(name)}`, json('DELETE')),
+    setFeatures: (features: string[]) =>
+      request<{ own_features: string[] }>('/settings/own-features', json('PUT', { features })),
+  },
+
+  winloss: {
+    get:    (competitor: string) => request<WinLoss>(`/winloss?competitor=${encodeURIComponent(competitor)}`),
+    add:    (deal: DealInput) => request<Deal>('/winloss/deals', json('POST', deal)),
+    remove: (id: number) => request<{ ok: boolean }>(`/winloss/deals/${id}`, json('DELETE')),
+  },
+
+  ask: (question: string, competitor: string | null, history: { role: 'user' | 'assistant'; content: string }[]) =>
+    request<AskAnswer>('/ask', json('POST', { question, competitor, history })),
+
   meta: {
     competitors: () =>
       request<{ competitors: string[] }>('/meta/competitors'),

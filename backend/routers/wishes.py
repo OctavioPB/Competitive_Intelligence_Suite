@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Query
 
 from backend.deps import known_competitor
-from config import OWN_FEATURES
+from modules.settings_store import own_features
 from modules.feature_wish_miner import extract_wishes, flag_own_features
 
 router = APIRouter(tags=["wishes"])
@@ -18,7 +18,7 @@ def get_wishes(
     if wish_df.empty:
         return {"competitor": competitor, "clusters": []}
 
-    flagged_df = flag_own_features(wish_df, OWN_FEATURES)
+    flagged_df = flag_own_features(wish_df, own_features())
 
     if gaps_only:
         flagged_df = flagged_df[~flagged_df["your_product_has_it"].astype(bool)]
