@@ -8,7 +8,7 @@ uvicorn[standard]>=0.30.0,<1.0.0
 
 # ── Data ─────────────────────────────────────────────────────────────────────
 pandas>=2.1.0,<3.0.0
-numpy>=1.26.0,<2.0.0
+numpy>=2.5.5,<3.0.0
 
 # ── NLP / ML ─────────────────────────────────────────────────────────────────
 # sentence-transformers must be installed before bertopic to avoid resolver conflicts
