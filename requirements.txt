@@ -14,7 +14,7 @@ numpy>=1.26.0,<2.0.0
 # sentence-transformers must be installed before bertopic to avoid resolver conflicts
 sentence-transformers>=6.3.0,<7.0.0
 bertopic>=0.16.0,<1.0.0
-spacy>=3.7.0,<4.0.0
+spacy>=3.8.18,<4.0.0
 vaderSentiment>=3.3.2
 torch>=2.1.0
 
